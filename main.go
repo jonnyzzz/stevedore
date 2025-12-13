@@ -8,6 +8,7 @@ import (
 
 func main() {
 	fmt.Println("Stevedore - Tiny container management system")
+	fmt.Println("https://github.com/jonnyzzz/stevedore")
 	fmt.Println("Running on:", getHostname())
 	fmt.Println("Version: 0.1.0")
 }
