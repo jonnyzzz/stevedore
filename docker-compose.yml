@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  stevedore:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stevedore:latest
+    container_name: stevedore
+    # Mount Docker socket to allow Docker operations from within the container
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Keep the container running for interactive use
+    # Comment out the 'command' line if you want to run the default CMD from Dockerfile
+    # command: tail -f /dev/null
+    restart: unless-stopped
