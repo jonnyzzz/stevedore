@@ -35,6 +35,23 @@ def _run_result(cmd, *, cwd, env=None):
     )
 
 
+def _chmod_db_readable(image, mount, *, cwd):
+    _run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            mount,
+            image,
+            "sh",
+            "-c",
+            "chmod 0644 /opt/stevedore/system/stevedore.db",
+        ],
+        cwd=cwd,
+    )
+
+
 class SmokeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -155,6 +172,9 @@ class SmokeTest(unittest.TestCase):
 
             db_path = os.path.join(state_root, "system", "stevedore.db")
             self.assertTrue(os.path.exists(db_path))
+
+            # On Linux, files created by the container may be owned by root and not readable by the host test user.
+            _chmod_db_readable(self._image, mount, cwd=self._repo_root)
 
             with open(db_path, "rb") as f:
                 header = f.read(16)
