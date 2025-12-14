@@ -3,6 +3,8 @@
 This project is intentionally Docker-first: the host installs as little as possible, then Stevedore
 runs in a container and keeps all state under a single mounted directory (`/opt/stevedore` by default).
 
+See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
+
 ## Guiding Principles
 
 - Minimal host dependencies (close to “Docker-only” on Ubuntu / Raspberry Pi OS).
@@ -27,6 +29,8 @@ runs in a container and keeps all state under a single mounted directory (`/opt/
    - Writes a container env file under `system/container.env`.
    - Creates the host wrapper `stevedore.sh`.
    - Bootstraps a `stevedore` deployment (self-management) when installed from a Git checkout.
+   - Planned: installer also creates a `stevedore` command (no `.sh`) in `PATH`.
+   - Planned: “curl | sh” install path for public forks (private forks require manual auth setup).
 2. **Fork warning**
    - The running container warns if installed from upstream `github.com/jonnyzzz/stevedore` `main`.
    - README explicitly requires installing from a fork.
@@ -34,8 +38,9 @@ runs in a container and keeps all state under a single mounted directory (`/opt/
    - A single state root directory (default `/opt/stevedore`), mounted into the container.
    - Per-deployment folders created on registration.
 4. **Repository onboarding**
-   - `stevedore.sh repo add …` registers a repo and generates an SSH deploy key.
-   - The tool prints the public key and instructions to add it as a read-only Deploy Key.
+   - `stevedore.sh repo add …` registers a repo (URL + branch).
+   - Planned (Community v1): support public HTTPS repositories (no credentials).
+   - Planned (PRO): SSH deploy keys / private repositories.
 5. **Parameters store (secrets)**
    - Parameters stored in a local SQLite database under `system/stevedore.db`.
    - Database is encrypted at rest using SQLCipher.
@@ -47,14 +52,25 @@ runs in a container and keeps all state under a single mounted directory (`/opt/
    - Docker build embeds: `VERSION`, git remote (sanitized), git commit, UTC build date.
    - Exposed via `stevedore version`.
 
-## Milestone 1 — Git sync loop (Community)
+## Milestone 1 — Status + HTTP API (Community)
+
+- Add `stevedore status` to list deployments and their last known state.
+- Add an HTTP server to the daemon (planned port `42107`) with:
+  - unauthenticated `/healthz` (for service monitoring)
+  - admin-authenticated status + manual triggers
+  - admin-authenticated repository registration
+- Installer generates and persists an admin key under `system/` and injects it into the container.
+- Ensure there is always a `stevedore` deployment (self-management baseline).
+
+## Milestone 2 — Git sync loop (Community)
 
 - Poll interval + scheduler.
-- Clone/pull via the generated deploy key.
+- Run Git operations in a dedicated worker container (isolation).
+- Community v1: public HTTPS clones only.
 - Persist last-seen revision and sync status in the state directory.
-- Manual sync trigger via CLI.
+- Manual sync trigger via CLI + HTTP API.
 
-## Milestone 2 — Deploy engine (Community)
+## Milestone 3 — Deploy engine (Community)
 
 - Repository contract:
   - `docker-compose.yaml` at repo root (recommended); also support `docker-compose.yml`, `compose.yaml`, `compose.yml`.
@@ -66,17 +82,33 @@ runs in a container and keeps all state under a single mounted directory (`/opt/
 - Deploy:
   - Apply compose in a predictable way (project naming per deployment).
   - **Rollback logic stays simple**: prefer “don’t take down the current version unless the new one is healthy”.
+- Run `docker compose` applies in a dedicated worker container (isolation).
+- Stream workload container logs into `/opt/stevedore/deployments/<deployment>/logs/…` with best-effort secret redaction.
 
-## Milestone 3 — Observability + operations (Community)
+## Milestone 4 — Self-update + resilience (Community)
 
-- Structured logs (console first).
-- State introspection commands (list deployments, status, last errors).
+- Self-update workflow:
+  - detect Stevedore repo changes
+  - build a new Stevedore image
+  - use an update worker container to stop/replace the running Stevedore control-plane container
+  - do not stop workload containers during Stevedore restarts
+- Health monitoring:
+  - container exposes `/healthz` on `:42107`
+  - systemd restarts Stevedore if it becomes unhealthy (Docker does not restart unhealthy containers by itself)
+
+## Milestone 5 — Observability + operations (Community)
+
+- Structured logs (console first, then UI).
+- State introspection commands (status, last errors, last deploy revision).
 - Backup / restore guidance (`tar` the state directory).
+- Container labels (v3): label all Stevedore-managed containers to make `docker ps`/`docker inspect` readable.
 
 ## PRO Roadmap (documentation-level)
 
-- Web UI (logs viewer + manual triggers).
+- Web UI (React) (logs viewer + manual triggers).
 - Advanced rollbacks (multiple versions, retention).
 - Notifications (Slack/Webhooks).
 - AuthN/AuthZ for UI and API.
 - External secrets backends (SOPS/Vault/Cloud secret managers).
+- Private repositories (SSH deploy keys / tokens).
+- Multi-arch release pipelines (arm64/armv7) and Raspberry Pi validation.
