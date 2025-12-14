@@ -22,7 +22,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          set +e
           python3 -m unittest discover -s tests/integration -p 'test_*.py' -v 2>&1 | tee integration.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "${status}" -ne 0 ]; then
+            lines="$(tail -n 200 integration.log | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')"
+            echo "::error title=Integration tests (Docker) failed::${lines}"
+            exit "${status}"
+          fi
 
       - name: Integration test output (summary)
         if: always()
