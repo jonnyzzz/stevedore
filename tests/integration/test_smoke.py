@@ -1,6 +1,6 @@
+import base64
 import os
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -35,8 +35,8 @@ def _run_result(cmd, *, cwd, env=None):
     )
 
 
-def _chmod_db_readable(image, mount, *, cwd):
-    _run(
+def _db_header_bytes(image, mount, *, cwd):
+    header_b64 = _run(
         [
             "docker",
             "run",
@@ -46,10 +46,14 @@ def _chmod_db_readable(image, mount, *, cwd):
             image,
             "sh",
             "-c",
-            "chmod 0644 /opt/stevedore/system/stevedore.db",
+            "dd if=/opt/stevedore/system/stevedore.db bs=1 count=16 2>/dev/null | base64 | tr -d '\\n'",
         ],
         cwd=cwd,
-    )
+    ).strip()
+    try:
+        return base64.b64decode(header_b64)
+    except Exception as e:
+        raise AssertionError(f"Unexpected base64 db header: {header_b64!r}") from e
 
 
 class SmokeTest(unittest.TestCase):
@@ -173,19 +177,8 @@ class SmokeTest(unittest.TestCase):
             db_path = os.path.join(state_root, "system", "stevedore.db")
             self.assertTrue(os.path.exists(db_path))
 
-            # On Linux, files created by the container may be owned by root and not readable by the host test user.
-            _chmod_db_readable(self._image, mount, cwd=self._repo_root)
-
-            with open(db_path, "rb") as f:
-                header = f.read(16)
+            header = _db_header_bytes(self._image, mount, cwd=self._repo_root)
             self.assertNotEqual(header, b"SQLite format 3\x00")
-
-            with self.assertRaises(sqlite3.DatabaseError):
-                con = sqlite3.connect(db_path)
-                try:
-                    con.execute("SELECT 1").fetchone()
-                finally:
-                    con.close()
 
             wrong_key = _run_result(
                 [
