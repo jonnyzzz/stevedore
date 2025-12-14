@@ -3,6 +3,9 @@
 Stevedore manages deployments by polling Git repositories. The recommended onboarding flow is SSH
 deploy keys (read-only).
 
+If you installed Stevedore from a Git checkout, `stevedore-install.sh` bootstraps a `stevedore`
+deployment automatically (so Stevedore can manage itself later). Add its deploy key to your fork.
+
 ## Add a Repository
 
 ```bash

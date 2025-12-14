@@ -21,6 +21,7 @@ Project specifics:
 - Keep `README.md` and `docs/*.md` consistent with the actual implementation state.
 - Community vs PRO is documentation-level for now (no feature gating in code yet).
 - Host interactions should be via `stevedore-install.sh` and `stevedore.sh` (Docker-first).
+- Installer should prefer a systemd unit (`stevedore.service`) to keep the container running across reboots (fall back to a Docker restart policy if systemd is unavailable).
 - Persist state in the SQLCipher-encrypted SQLite DB (`system/stevedore.db`); avoid plaintext secret files (installer generates `system/db.key`).
 - Repositories use Compose as the entrypoint (`docker-compose.yaml` preferred; fall back to other common names).
 - The container service runs the daemon via `stevedore -d`.

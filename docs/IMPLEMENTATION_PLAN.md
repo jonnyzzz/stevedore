@@ -20,10 +20,13 @@ runs in a container and keeps all state under a single mounted directory (`/opt/
 
 1. **Installer**
    - `stevedore-install.sh` supports Ubuntu and Raspberry Pi OS.
-   - Installs missing prerequisites (Docker + Compose plugin) and asks for `sudo` when required.
-   - Starts Stevedore via `docker compose up -d`.
+   - Installs missing prerequisites (Docker) and asks for `sudo` when required.
+   - Builds the Stevedore image locally (`docker build`).
+   - Installs and enables `stevedore.service` (systemd) to keep Stevedore running across reboots.
    - The container runs the daemon via `stevedore -d`.
+   - Writes a container env file under `system/container.env`.
    - Creates the host wrapper `stevedore.sh`.
+   - Bootstraps a `stevedore` deployment (self-management) when installed from a Git checkout.
 2. **Fork warning**
    - The running container warns if installed from upstream `github.com/jonnyzzz/stevedore` `main`.
    - README explicitly requires installing from a fork.

@@ -45,6 +45,7 @@ the upstream repo can unexpectedly redeploy your host.
 Stevedore is early-stage. The current focus is:
 
 - A minimal host installation (`./stevedore-install.sh`) for Ubuntu and Raspberry Pi OS
+- A systemd service (`stevedore.service`) to keep Stevedore running across reboots
 - A host wrapper (`stevedore.sh`) that configures the running container via `docker exec`
 - A file-backed state layout under a single mounted volume (`/opt/stevedore` by default)
 - Repository onboarding via generated SSH deploy keys
@@ -88,7 +89,7 @@ PRO (planned, documentation only for now):
 
 ### Prerequisites
 
-- Docker 24+ with Compose plugin
+- Docker 24+
 - Git
 - A host running Linux (tested on Ubuntu 22.04+, Raspberry Pi OS)
 
@@ -109,6 +110,12 @@ stevedore.sh doctor
 `stevedore-install.sh` installs the host wrapper `stevedore.sh` (default: `/usr/local/bin/stevedore.sh`).
 All configuration and operations are done by running `stevedore.sh …`, which executes the `stevedore`
 binary inside the running container via `docker exec`.
+
+The installer also installs and enables `stevedore.service` (systemd), which runs a single container
+named `stevedore` and keeps it running across reboots.
+
+If the installer detects it is running from a Git checkout, it also bootstraps a `stevedore`
+deployment and prints an SSH Deploy Key for your fork (read-only).
 
 ### Add Your First Repository
 
