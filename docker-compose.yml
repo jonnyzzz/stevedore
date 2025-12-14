@@ -7,9 +7,15 @@ services:
       dockerfile: Dockerfile
     image: stevedore:latest
     container_name: stevedore
+    environment:
+      STEVEDORE_ROOT: /opt/stevedore
+      STEVEDORE_DB_KEY_FILE: /opt/stevedore/system/db.key
+      STEVEDORE_SOURCE_REPO: ${STEVEDORE_SOURCE_REPO:-}
+      STEVEDORE_SOURCE_REF: ${STEVEDORE_SOURCE_REF:-}
     # Mount Docker socket to allow Docker operations from within the container
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${STEVEDORE_HOST_ROOT:-/opt/stevedore}:/opt/stevedore
     # Keep the container running for interactive use
     # Comment out the 'command' line if you want to run the default CMD from Dockerfile
     # command: tail -f /dev/null
