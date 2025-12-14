@@ -38,6 +38,16 @@ accidental leaks, Stevedore should apply best-effort redaction before writing lo
 This is not a perfect guarantee (secrets can be transformed/encoded by applications), so the goal is
 to reduce obvious leaks and document the limits clearly.
 
+## SSH Keys (PRO, planned v4)
+
+SSH deploy keys (for private Git repositories) are secrets.
+
+Planned approach:
+
+- Store SSH private keys encrypted in the SQLCipher database (`/opt/stevedore/system/stevedore.db`).
+- Do not write key material to disk (no `id_ed25519` files under the state directory).
+- Provide an SSH agent from the daemon and forward/mount it into the git worker container only when needed.
+
 ## How Parameters Reach Containers (Options)
 
 We need to decide which approach becomes the default:

@@ -111,4 +111,6 @@ See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
 - AuthN/AuthZ for UI and API.
 - External secrets backends (SOPS/Vault/Cloud secret managers).
 - Private repositories (SSH deploy keys / tokens).
+  - v4: store SSH private keys encrypted in `system/stevedore.db` (SQLCipher) and never write key material to disk.
+  - v4: use an SSH agent (in-daemon) and mount/forward it to git worker containers on-demand (`SSH_AUTH_SOCK`).
 - Multi-arch release pipelines (arm64/armv7) and Raspberry Pi validation.

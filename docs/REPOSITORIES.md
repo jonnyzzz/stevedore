@@ -35,6 +35,12 @@ stevedore.sh repo key <deployment>
 Stevedore can generate an SSH keypair per deployment and print the public key. The intended use is
 adding that key as a **read-only deploy key** for private repositories.
 
+v4 plan (security hardening):
+
+- Store SSH private keys encrypted in `system/stevedore.db` (SQLCipher), not as plaintext files.
+- Run an SSH agent in the daemon and forward/mount it into git worker containers only when needed
+  (`SSH_AUTH_SOCK`).
+
 ### GitHub UI
 
 1. Open repository → **Settings**
@@ -44,10 +50,15 @@ adding that key as a **read-only deploy key** for private repositories.
 
 ## Where the Keys Live
 
-By default:
+Current (legacy / implementation detail in early versions):
 
 - Private key: `/opt/stevedore/deployments/<deployment>/repo/ssh/id_ed25519`
 - Public key: `/opt/stevedore/deployments/<deployment>/repo/ssh/id_ed25519.pub`
+
+Planned (v4):
+
+- Private key: stored encrypted in `system/stevedore.db`; never written to disk as a key file.
+- Git auth: via forwarded SSH agent socket into the git worker container.
 
 ## Alternatives (Options)
 

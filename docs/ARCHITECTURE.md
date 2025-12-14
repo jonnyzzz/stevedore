@@ -100,6 +100,21 @@ Proposed approach:
 - Community (v1): **public HTTPS** repositories only (no credentials).
 - PRO (planned): private repositories via SSH Deploy Keys / tokens.
 
+## SSH Key Handling (planned, v4)
+
+When supporting private repositories via SSH deploy keys, Stevedore should avoid writing any private
+key material to disk (even under `/opt/stevedore`).
+
+Proposed approach:
+
+- Store SSH private keys **encrypted at rest** in the SQLCipher SQLite DB (`system/stevedore.db`).
+- Run an SSH agent inside the Stevedore daemon (or implement the SSH agent protocol in-process).
+- When starting a git worker container, mount the agent socket and set `SSH_AUTH_SOCK` so Git/SSH can
+  authenticate via the agent.
+- Load keys into the agent only when required (on-demand) and optionally evict after use.
+
+This keeps keys out of plaintext files and limits key exposure to in-memory usage.
+
 ## Container Labels (planned, v3)
 
 Add predictable labels to all created/managed containers, e.g.:

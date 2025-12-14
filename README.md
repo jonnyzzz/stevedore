@@ -86,6 +86,7 @@ PRO (planned, documentation only for now):
 - **Advanced rollback** (PRO) — Multiple versions, retention policies
 - **Notifications** (PRO) — Slack/Webhooks
 - **Multi-user** (PRO) — AuthN/AuthZ for UI and API
+- **Private repositories** (PRO) — SSH deploy keys (v4: stored encrypted in DB and forwarded via SSH agent)
 
 ## Quick Start
 
