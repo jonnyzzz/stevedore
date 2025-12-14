@@ -24,6 +24,7 @@ Project specifics:
 - Installer should prefer a systemd unit (`stevedore.service`) to keep the container running across reboots (fall back to a Docker restart policy if systemd is unavailable).
 - Persist state in the SQLCipher-encrypted SQLite DB (`system/stevedore.db`); avoid plaintext secret files (installer generates `system/db.key`).
 - Repositories use Compose as the entrypoint (`docker-compose.yaml` preferred; fall back to other common names).
+- Community v1 (planned): public HTTPS repositories only; PRO (planned): private repositories via SSH deploy keys/tokens.
 - The container service runs the daemon via `stevedore -d`.
 - Prefer POSIX `sh` for host scripts; target Ubuntu and Raspberry Pi OS.
 - Add integration tests that run Stevedore in Docker; keep them runnable in GitHub Actions.

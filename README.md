@@ -48,11 +48,11 @@ Stevedore is early-stage. The current focus is:
 - A systemd service (`stevedore.service`) to keep Stevedore running across reboots
 - A host wrapper (`stevedore.sh`) that configures the running container via `docker exec`
 - A file-backed state layout under a single mounted volume (`/opt/stevedore` by default)
-- Repository onboarding via generated SSH deploy keys
+- Repository registration (URL + branch); deployment engine is next
 - A parameters store in a SQLCipher-encrypted SQLite database (`/opt/stevedore/system/stevedore.db`)
 - Build metadata embedded at build time (`VERSION` + git info, see `stevedore version`)
 
-See `docs/IMPLEMENTATION_PLAN.md` for concrete milestones and scope.
+See `docs/IMPLEMENTATION_PLAN.md` and `docs/ARCHITECTURE.md` for concrete milestones and scope.
 
 ## Why Stevedore?
 
@@ -69,12 +69,14 @@ Community (implemented):
 
 - **Installer + wrapper** — `./stevedore-install.sh` + `stevedore.sh` (Docker-first)
 - **State on disk** — Everything under a single host directory (`/opt/stevedore` by default)
-- **Repo onboarding** — Generates an SSH deploy key per repository
+- **Repository registration** — Register a repo URL + branch per deployment
 - **Parameters store** — SQLCipher-encrypted SQLite database + install-generated key
 - **Upstream main warning** — Warns if installed from `jonnyzzz/stevedore` `main`
+- **Build metadata** — `VERSION` + git info embedded into the binary/image
 
 Community (next):
 
+- **Status + health** — `stevedore status` and a daemon HTTP endpoint on port `42107`
 - **Git polling + deployments** — Poll Git repositories and deploy via Docker Compose
 - **Self-managing** — Stevedore deploys itself (recommended from a fork)
 
@@ -97,7 +99,7 @@ PRO (planned, documentation only for now):
 
 ```bash
 # Clone your fork
-git clone git@github.com:<you>/stevedore.git
+git clone https://github.com/<you>/stevedore.git
 cd stevedore
 
 # Build and install Stevedore to the host OS
@@ -107,6 +109,15 @@ cd stevedore
 stevedore.sh doctor
 ```
 
+Planned (public forks): a one-line installer (`curl | sh`). Target UX:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/<you>/stevedore/<ref>/stevedore-install.sh | sh
+```
+
+If the repository is not accessible without authorization, the installer should fail fast and ask
+you to fix access first.
+
 `stevedore-install.sh` installs the host wrapper `stevedore.sh` (default: `/usr/local/bin/stevedore.sh`).
 All configuration and operations are done by running `stevedore.sh …`, which executes the `stevedore`
 binary inside the running container via `docker exec`.
@@ -115,17 +126,17 @@ The installer also installs and enables `stevedore.service` (systemd), which run
 named `stevedore` and keeps it running across reboots.
 
 If the installer detects it is running from a Git checkout, it also bootstraps a `stevedore`
-deployment and prints an SSH Deploy Key for your fork (read-only).
+deployment (self-management baseline). If your fork is private, you will need to provide repository
+access credentials (planned: SSH Deploy Keys / PRO).
 
 ### Add Your First Repository
 
 ```bash
-stevedore.sh repo add homepage git@github.com:<you>/homepage.git --branch main
-stevedore.sh repo key homepage
+stevedore.sh repo add homepage https://github.com/acme/homepage.git --branch main
 ```
 
-Add the printed public key to your repo as a **read-only Deploy Key**.
-See `docs/REPOSITORIES.md`.
+Community v1 is planned to support **public HTTPS** repositories only. Private repositories and SSH
+Deploy Keys are planned for PRO. See `docs/REPOSITORIES.md`.
 
 ### Secrets / Parameters
 

@@ -1,10 +1,14 @@
 # Repositories (Deployments)
 
-Stevedore manages deployments by polling Git repositories. The recommended onboarding flow is SSH
-deploy keys (read-only).
+Stevedore manages deployments by polling Git repositories.
 
 If you installed Stevedore from a Git checkout, `stevedore-install.sh` bootstraps a `stevedore`
-deployment automatically (so Stevedore can manage itself later). Add its deploy key to your fork.
+deployment automatically (so Stevedore can manage itself later).
+
+## Repository Access Policy (planned)
+
+- Community (v1): **public HTTPS** repositories only (no credentials).
+- PRO (planned): private repositories via SSH Deploy Keys / tokens.
 
 ## Add a Repository
 
@@ -17,18 +21,19 @@ stevedore.sh repo add <deployment> <git-url> --branch <branch>
 Example:
 
 ```bash
-stevedore.sh repo add homepage git@github.com:acme/homepage.git --branch main
+stevedore.sh repo add homepage https://github.com/acme/homepage.git --branch main
 ```
 
-This creates the deployment state directory and generates an SSH keypair.
+This creates the deployment state directory and stores the repository URL and branch.
 
-## Get the Public Deploy Key
+## SSH Deploy Keys (PRO, planned)
 
 ```bash
 stevedore.sh repo key <deployment>
 ```
 
-Add the printed public key to the Git hosting provider as a **read-only deploy key**.
+Stevedore can generate an SSH keypair per deployment and print the public key. The intended use is
+adding that key as a **read-only deploy key** for private repositories.
 
 ### GitHub UI
 

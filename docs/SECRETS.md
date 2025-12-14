@@ -27,6 +27,17 @@ keeps secrets out of Git and encrypts them at rest.
 - Losing `db.key` means losing access to all stored parameters (the database cannot be decrypted).
 - Back up both `/opt/stevedore/system/db.key` and `/opt/stevedore/system/stevedore.db` together.
 
+## Secret Redaction in Logs (planned)
+
+Stevedore will stream workload container logs into files under the state directory. To reduce
+accidental leaks, Stevedore should apply best-effort redaction before writing logs:
+
+- Never print secret values explicitly in Stevedore logs.
+- When writing workload logs, replace known secret values (from the parameters DB) with `***`.
+
+This is not a perfect guarantee (secrets can be transformed/encoded by applications), so the goal is
+to reduce obvious leaks and document the limits clearly.
+
 ## How Parameters Reach Containers (Options)
 
 We need to decide which approach becomes the default:
@@ -50,5 +61,6 @@ We need to decide which approach becomes the default:
 
 ## Recommendations (for now)
 
-- Use deploy keys for Git access (not tokens when possible).
+- Community v1: prefer public HTTPS repositories (no credentials).
+- For private repositories (PRO, planned): prefer deploy keys over broad tokens when possible.
 - Store secrets only via the parameters store (never in `docker-compose.yaml` committed to Git).
