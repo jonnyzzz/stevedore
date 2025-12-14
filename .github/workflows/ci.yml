@@ -19,4 +19,23 @@ jobs:
         run: go test ./...
 
       - name: Integration tests (Docker)
-        run: python3 -m unittest discover -s tests/integration -p 'test_*.py'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/integration -p 'test_*.py' -v 2>&1 | tee integration.log
+
+      - name: Integration test output (summary)
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Integration tests (Docker)"
+            echo
+            echo '```text'
+            if [ -f integration.log ]; then
+              tail -n 200 integration.log
+            else
+              echo "integration.log not found"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
