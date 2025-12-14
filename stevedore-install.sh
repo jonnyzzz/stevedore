@@ -2,8 +2,11 @@
 set -eu
 
 STEVEDORE_HOST_ROOT="${STEVEDORE_HOST_ROOT:-/opt/stevedore}"
-STEVEDORE_ENV_FILE="${STEVEDORE_ENV_FILE:-.env}"
 STEVEDORE_WRAPPER_PATH="${STEVEDORE_WRAPPER_PATH:-/usr/local/bin/stevedore.sh}"
+STEVEDORE_SERVICE_NAME="${STEVEDORE_SERVICE_NAME:-stevedore}"
+STEVEDORE_CONTAINER_NAME="${STEVEDORE_CONTAINER_NAME:-stevedore}"
+STEVEDORE_IMAGE="${STEVEDORE_IMAGE:-stevedore:latest}"
+STEVEDORE_CONTAINER_ENV="${STEVEDORE_CONTAINER_ENV:-${STEVEDORE_HOST_ROOT}/system/container.env}"
 DOCKER_USE_SUDO=0
 
 log() {
@@ -91,20 +94,6 @@ ensure_docker() {
   need_cmd docker
 }
 
-ensure_compose_plugin() {
-  if docker_cmd compose version >/dev/null 2>&1; then
-    return 0
-  fi
-
-  log "Docker Compose plugin not found; attempting to install it."
-  if command -v apt-get >/dev/null 2>&1; then
-    sudo_cmd apt-get update
-    sudo_cmd apt-get install -y docker-compose-plugin
-  fi
-
-  docker_cmd compose version >/dev/null 2>&1 || die "docker compose is still unavailable; install the Compose plugin."
-}
-
 detect_docker_access() {
   if docker info >/dev/null 2>&1; then
     DOCKER_USE_SUDO=0
@@ -114,6 +103,14 @@ detect_docker_access() {
   if sudo_cmd docker info >/dev/null 2>&1; then
     DOCKER_USE_SUDO=1
     return 0
+  fi
+
+  if have_systemd; then
+    sudo_cmd systemctl start docker >/dev/null 2>&1 || true
+    if sudo_cmd docker info >/dev/null 2>&1; then
+      DOCKER_USE_SUDO=1
+      return 0
+    fi
   fi
 
   die "Docker is installed but not accessible. Add your user to the 'docker' group or run with sudo."
@@ -137,9 +134,103 @@ ensure_db_key() {
   sudo_cmd sh -c "umask 077; printf '%s\n' '${key}' > '${key_path}'"
 }
 
+have_systemd() {
+  command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
+}
+
+write_container_env() {
+  log "Writing container env: ${STEVEDORE_CONTAINER_ENV}"
+  sudo_cmd mkdir -p "$(dirname "${STEVEDORE_CONTAINER_ENV}")"
+
+  sudo_cmd sh -c "umask 077; cat > '${STEVEDORE_CONTAINER_ENV}'" <<EOF
+STEVEDORE_ROOT=/opt/stevedore
+STEVEDORE_DB_KEY_FILE=/opt/stevedore/system/db.key
+STEVEDORE_SOURCE_REPO=${git_repo}
+STEVEDORE_SOURCE_REF=${git_branch}
+EOF
+}
+
+build_image() {
+  log "Building image: ${STEVEDORE_IMAGE}"
+  docker_cmd build -t "${STEVEDORE_IMAGE}" .
+}
+
+install_systemd_service() {
+  service_path="/etc/systemd/system/${STEVEDORE_SERVICE_NAME}.service"
+  docker_bin="$(command -v docker)"
+
+  log "Installing systemd service: ${service_path}"
+  sudo_cmd sh -c "cat > '${service_path}'" <<EOF
+[Unit]
+Description=Stevedore daemon (Docker)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=2
+ExecStartPre=-${docker_bin} rm -f ${STEVEDORE_CONTAINER_NAME}
+ExecStart=${docker_bin} run --name ${STEVEDORE_CONTAINER_NAME} --env-file ${STEVEDORE_CONTAINER_ENV} -v /var/run/docker.sock:/var/run/docker.sock -v ${STEVEDORE_HOST_ROOT}:/opt/stevedore ${STEVEDORE_IMAGE}
+ExecStop=-${docker_bin} stop ${STEVEDORE_CONTAINER_NAME}
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  sudo_cmd systemctl daemon-reload
+  sudo_cmd systemctl enable "${STEVEDORE_SERVICE_NAME}"
+  sudo_cmd systemctl restart "${STEVEDORE_SERVICE_NAME}"
+}
+
+start_container_without_systemd() {
+  log "systemd not detected; starting container via docker restart policy"
+  docker_cmd rm -f "${STEVEDORE_CONTAINER_NAME}" >/dev/null 2>&1 || true
+  docker_cmd run -d --name "${STEVEDORE_CONTAINER_NAME}" --restart unless-stopped \
+    --env-file "${STEVEDORE_CONTAINER_ENV}" \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "${STEVEDORE_HOST_ROOT}:/opt/stevedore" \
+    "${STEVEDORE_IMAGE}" >/dev/null
+}
+
+wait_for_container() {
+  name="$1"
+  i=0
+  while [ "$i" -lt 30 ]; do
+    if docker_cmd ps --format '{{.Names}}' | grep -qx "${name}"; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+
+bootstrap_self_deployment() {
+  deployment="${STEVEDORE_SELF_DEPLOYMENT:-stevedore}"
+
+  if [ "${STEVEDORE_BOOTSTRAP_SELF:-1}" != "1" ]; then
+    return 0
+  fi
+
+  if [ -z "${git_repo}" ] || [ -z "${git_branch}" ] || [ "${git_branch}" = "HEAD" ]; then
+    log "Skipping self deployment bootstrap (source repo/branch not detected)."
+    return 0
+  fi
+
+  if sudo_cmd test -d "${STEVEDORE_HOST_ROOT}/deployments/${deployment}"; then
+    log "Self deployment already exists: ${deployment}"
+    return 0
+  fi
+
+  log "Bootstrapping self deployment: ${deployment}"
+  ./stevedore.sh repo add "${deployment}" "${git_repo}" --branch "${git_branch}"
+}
+
 main() {
   [ "$(uname -s)" = "Linux" ] || die "This installer supports Linux only."
-  [ -f "docker-compose.yml" ] || die "Run this script from the repository root (docker-compose.yml not found)."
+  [ -f "Dockerfile" ] || die "Run this script from the repository root (Dockerfile not found)."
 
   git_repo=""
   git_branch=""
@@ -158,21 +249,23 @@ main() {
 
   ensure_docker
   detect_docker_access
-  ensure_compose_plugin
 
   log "Creating state directory: ${STEVEDORE_HOST_ROOT}"
   sudo_cmd mkdir -p "${STEVEDORE_HOST_ROOT}/system" "${STEVEDORE_HOST_ROOT}/deployments"
   ensure_db_key
 
-  log "Writing ${STEVEDORE_ENV_FILE}"
-  cat >"${STEVEDORE_ENV_FILE}" <<EOF
-STEVEDORE_HOST_ROOT=${STEVEDORE_HOST_ROOT}
-STEVEDORE_SOURCE_REPO=${git_repo}
-STEVEDORE_SOURCE_REF=${git_branch}
-EOF
+  write_container_env
+  build_image
 
-  log "Starting Stevedore container"
-  docker_cmd compose up -d --build
+  if have_systemd; then
+    install_systemd_service
+  else
+    start_container_without_systemd
+  fi
+
+  if ! wait_for_container "${STEVEDORE_CONTAINER_NAME}"; then
+    die "Stevedore container did not start (name: ${STEVEDORE_CONTAINER_NAME})"
+  fi
 
   log "Installing stevedore.sh wrapper to ${STEVEDORE_WRAPPER_PATH}"
   if command -v install >/dev/null 2>&1; then
@@ -181,6 +274,11 @@ EOF
     sudo_cmd cp "./stevedore.sh" "${STEVEDORE_WRAPPER_PATH}"
     sudo_cmd chmod 0755 "${STEVEDORE_WRAPPER_PATH}"
   fi
+
+  log "Running doctor"
+  ./stevedore.sh doctor
+
+  bootstrap_self_deployment
 
   log "Done."
   log "Next:"

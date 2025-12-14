@@ -38,7 +38,7 @@ detect_docker_access
 
 if ! docker_cmd ps --format '{{.Names}}' | grep -qx "${STEVEDORE_CONTAINER}"; then
   printf '%s\n' "ERROR: Stevedore container '${STEVEDORE_CONTAINER}' is not running." >&2
-  printf '%s\n' "Start it from the repo root with: docker compose up -d" >&2
+  printf '%s\n' "If installed with stevedore-install.sh, start it with: sudo systemctl start stevedore" >&2
   exit 1
 fi
 
