@@ -97,8 +97,9 @@ Proposed approach:
 
 ## Repository Access Policy (planned)
 
-- Community (v1): **public HTTPS** repositories only (no credentials).
-- PRO (planned): private repositories via SSH Deploy Keys / tokens.
+- Recommended: SSH deploy keys (read-only) per deployment.
+- Alternative: HTTPS with tokens (broader scope than deploy keys).
+- Future hardening (v4): store SSH keys encrypted in the DB and forward via SSH agent.
 
 ## SSH Key Handling (planned, v4)
 

@@ -38,11 +38,15 @@ accidental leaks, Stevedore should apply best-effort redaction before writing lo
 This is not a perfect guarantee (secrets can be transformed/encoded by applications), so the goal is
 to reduce obvious leaks and document the limits clearly.
 
-## SSH Keys (PRO, planned v4)
+## SSH Keys (planned)
 
 SSH deploy keys (for private Git repositories) are secrets.
 
-Planned approach:
+Current approach:
+
+- Private keys are stored as files under the deployment directory (see `docs/REPOSITORIES.md`).
+
+Future hardening (v4):
 
 - Store SSH private keys encrypted in the SQLCipher database (`/opt/stevedore/system/stevedore.db`).
 - Do not write key material to disk (no `id_ed25519` files under the state directory).
@@ -71,6 +75,5 @@ We need to decide which approach becomes the default:
 
 ## Recommendations (for now)
 
-- Community v1: prefer public HTTPS repositories (no credentials).
-- For private repositories (PRO, planned): prefer deploy keys over broad tokens when possible.
+- Prefer deploy keys over broad tokens when possible.
 - Store secrets only via the parameters store (never in `docker-compose.yaml` committed to Git).

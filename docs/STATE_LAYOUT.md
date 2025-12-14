@@ -28,9 +28,9 @@ Stevedore container.
         url.txt                 # git URL
         branch.txt              # branch name
         git/                    # git checkout / bare repo (implementation detail)
-        ssh/                    # legacy key storage (planned to be removed in v4)
-          id_ed25519            # generated deploy key (private, legacy)
-          id_ed25519.pub        # generated deploy key (public, legacy)
+        ssh/
+          id_ed25519            # generated deploy key (private)
+          id_ed25519.pub        # generated deploy key (public)
       parameters/               # reserved / legacy (secrets are NOT stored as plaintext files)
       runtime/
         ...                     # derived state (last sync, last deploy, etc)

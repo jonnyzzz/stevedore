@@ -48,7 +48,7 @@ Stevedore is early-stage. The current focus is:
 - A systemd service (`stevedore.service`) to keep Stevedore running across reboots
 - A host wrapper (`stevedore.sh`) that configures the running container via `docker exec`
 - A file-backed state layout under a single mounted volume (`/opt/stevedore` by default)
-- Repository registration (URL + branch); deployment engine is next
+- Repository onboarding via generated SSH deploy keys
 - A parameters store in a SQLCipher-encrypted SQLite database (`/opt/stevedore/system/stevedore.db`)
 - Build metadata embedded at build time (`VERSION` + git info, see `stevedore version`)
 
@@ -69,7 +69,7 @@ Community (implemented):
 
 - **Installer + wrapper** — `./stevedore-install.sh` + `stevedore.sh` (Docker-first)
 - **State on disk** — Everything under a single host directory (`/opt/stevedore` by default)
-- **Repository registration** — Register a repo URL + branch per deployment
+- **Repo onboarding** — Generates an SSH deploy key per repository
 - **Parameters store** — SQLCipher-encrypted SQLite database + install-generated key
 - **Upstream main warning** — Warns if installed from `jonnyzzz/stevedore` `main`
 - **Build metadata** — `VERSION` + git info embedded into the binary/image
@@ -86,7 +86,6 @@ PRO (planned, documentation only for now):
 - **Advanced rollback** (PRO) — Multiple versions, retention policies
 - **Notifications** (PRO) — Slack/Webhooks
 - **Multi-user** (PRO) — AuthN/AuthZ for UI and API
-- **Private repositories** (PRO) — SSH deploy keys (v4: stored encrypted in DB and forwarded via SSH agent)
 
 ## Quick Start
 
@@ -127,17 +126,17 @@ The installer also installs and enables `stevedore.service` (systemd), which run
 named `stevedore` and keeps it running across reboots.
 
 If the installer detects it is running from a Git checkout, it also bootstraps a `stevedore`
-deployment (self-management baseline). If your fork is private, you will need to provide repository
-access credentials (planned: SSH Deploy Keys / PRO).
+deployment and prints an SSH Deploy Key for your fork (read-only).
 
 ### Add Your First Repository
 
 ```bash
-stevedore.sh repo add homepage https://github.com/acme/homepage.git --branch main
+stevedore.sh repo add homepage git@github.com:<you>/homepage.git --branch main
+stevedore.sh repo key homepage
 ```
 
-Community v1 is planned to support **public HTTPS** repositories only. Private repositories and SSH
-Deploy Keys are planned for PRO. See `docs/REPOSITORIES.md`.
+Add the printed public key to your repo as a **read-only Deploy Key**.
+See `docs/REPOSITORIES.md`.
 
 ### Secrets / Parameters
 

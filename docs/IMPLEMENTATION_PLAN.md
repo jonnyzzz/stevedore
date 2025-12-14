@@ -38,9 +38,8 @@ See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
    - A single state root directory (default `/opt/stevedore`), mounted into the container.
    - Per-deployment folders created on registration.
 4. **Repository onboarding**
-   - `stevedore.sh repo add …` registers a repo (URL + branch).
-   - Planned (Community v1): support public HTTPS repositories (no credentials).
-   - Planned (PRO): SSH deploy keys / private repositories.
+   - `stevedore.sh repo add …` registers a repo and generates an SSH deploy key.
+   - The tool prints the public key and instructions to add it as a read-only Deploy Key.
 5. **Parameters store (secrets)**
    - Parameters stored in a local SQLite database under `system/stevedore.db`.
    - Database is encrypted at rest using SQLCipher.
@@ -66,7 +65,8 @@ See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
 
 - Poll interval + scheduler.
 - Run Git operations in a dedicated worker container (isolation).
-- Community v1: public HTTPS clones only.
+- Use the generated deploy key for SSH Git access (read-only).
+- v4 hardening: store private keys encrypted in the DB and forward via SSH agent (no key files on disk).
 - Persist last-seen revision and sync status in the state directory.
 - Manual sync trigger via CLI + HTTP API.
 
@@ -110,7 +110,4 @@ See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
 - Notifications (Slack/Webhooks).
 - AuthN/AuthZ for UI and API.
 - External secrets backends (SOPS/Vault/Cloud secret managers).
-- Private repositories (SSH deploy keys / tokens).
-  - v4: store SSH private keys encrypted in `system/stevedore.db` (SQLCipher) and never write key material to disk.
-  - v4: use an SSH agent (in-daemon) and mount/forward it to git worker containers on-demand (`SSH_AUTH_SOCK`).
 - Multi-arch release pipelines (arm64/armv7) and Raspberry Pi validation.
