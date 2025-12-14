@@ -18,7 +18,7 @@ Unacceptable behavior may be reported to the project maintainers.
 
 Stevedore is a lightweight container orchestration system written in Go. Before diving in, familiarize yourself with:
 
-- [Go](https://go.dev/doc/) (1.22+)
+- [Go](https://go.dev/doc/) (1.25+)
 - [Docker](https://docs.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
 - The project [README](README.md) for architecture overview
 
@@ -33,6 +33,7 @@ Looking for a place to start? Check out issues labeled [`good first issue`](http
 - Go 1.25 or later
 - Docker 24+ with Compose plugin
 - Git
+- A C toolchain (CGO) for `go-sqlcipher` (e.g. `gcc`/`clang` + libc headers)
 - Make (optional, but recommended)
 
 ## How to Contribute
@@ -72,7 +73,8 @@ Feature requests are welcome! Please:
 
 - [ ] Code compiles without errors (`make build`)
 - [ ] All tests pass (`make test`)
-- [ ] Linter passes (`make lint`)
+- [ ] Integration tests pass (`make test-integration`) (requires Docker)
+- [ ] Code is formatted (`make fmt`)
 - [ ] New code has appropriate test coverage
 - [ ] Documentation is updated if needed
 - [ ] Commit messages are clear and descriptive
@@ -100,7 +102,7 @@ We follow standard Go conventions:
 
 - Run `gofmt` on all code (automated via `make fmt`)
 - Follow [Effective Go](https://go.dev/doc/effective_go)
-- Use `golangci-lint` for additional checks
+- Keep changes testable (prefer small, verifiable diffs)
 
 ### Changelog
 

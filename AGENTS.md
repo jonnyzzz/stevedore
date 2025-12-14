@@ -16,3 +16,13 @@ are resolved in Test-first-approach. First test is added to reproduce,
 next the fix is added to fix the test. Make sure you reproduce the
 right problem and your fix fixes that. Tests are higher priority than the code!
 
+Project specifics:
+
+- Keep `README.md` and `docs/*.md` consistent with the actual implementation state.
+- Community vs PRO is documentation-level for now (no feature gating in code yet).
+- Host interactions should be via `stevedore-install.sh` and `stevedore.sh` (Docker-first).
+- Persist state in the SQLCipher-encrypted SQLite DB (`system/stevedore.db`); avoid plaintext secret files (installer generates `system/db.key`).
+- Repositories use Compose as the entrypoint (`docker-compose.yaml` preferred; fall back to other common names).
+- The container service runs the daemon via `stevedore -d`.
+- Prefer POSIX `sh` for host scripts; target Ubuntu and Raspberry Pi OS.
+- Add integration tests that run Stevedore in Docker; keep them runnable in GitHub Actions.

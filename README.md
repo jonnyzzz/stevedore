@@ -3,18 +3,19 @@
 **A lightweight, self-managing container orchestration system for Git-driven deployments.**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Docker](https://img.shields.io/badge/Docker-24+-2496ED?logo=docker&logoColor=white)](https://www.docker.com)
 
 ---
 
-A deployment unit is a repository in GitHub. Stevedore watches for changes in the repository
-and redeploys repositories once a change is detected. It uses Docker/Docker Compose for deployments. 
+Stevedore runs as a single container on a small host (Ubuntu / Raspberry Pi OS).
+A **deployment** (deployment unit) is a Git repository. Stevedore watches for changes and redeploys
+that repository using Docker / Docker Compose.
 
-Stevedore designed to run on resource-constrained environments like Raspberry Pi while providing the 
-GitOps workflow you'd expect from larger orchestration platforms.
+Stevedore is designed for resource‑constrained environments while keeping the operational model
+simple and inspectable (state on disk, clear logs).
 
-Stevedore uses Stevedore to deploy itself. We recommend forking the project to avoid sudden redeploys.
+Stevedore can deploy itself, but you should fork first.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -31,6 +32,27 @@ Stevedore uses Stevedore to deploy itself. We recommend forking the project to a
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Fork First (Required)
+
+If you deploy Stevedore from `github.com/jonnyzzz/stevedore` `main`, a `git pull` or force‑push in
+the upstream repo can unexpectedly redeploy your host.
+
+- Fork the repository and install from your fork.
+- Stevedore warns at startup if it detects it was installed from the upstream `main`.
+
+## Project Status
+
+Stevedore is early-stage. The current focus is:
+
+- A minimal host installation (`./stevedore-install.sh`) for Ubuntu and Raspberry Pi OS
+- A host wrapper (`stevedore.sh`) that configures the running container via `docker exec`
+- A file-backed state layout under a single mounted volume (`/opt/stevedore` by default)
+- Repository onboarding via generated SSH deploy keys
+- A parameters store in a SQLCipher-encrypted SQLite database (`/opt/stevedore/system/stevedore.db`)
+- Build metadata embedded at build time (`VERSION` + git info, see `stevedore version`)
+
+See `docs/IMPLEMENTATION_PLAN.md` for concrete milestones and scope.
+
 ## Why Stevedore?
 
 You have a Raspberry Pi (or a small VPS) running a handful of services.
@@ -42,16 +64,25 @@ Stevedore does exactly that — nothing more, nothing less. Simplicity is key.
 
 ## Features
 
-- **Git-driven deployments** — Push to GitHub, containers rebuild and restart automatically
-- **Self-managing** — Stevedore updates itself using the same mechanism it uses for your apps
-- **Automatic rollback** — Failed deployments roll back to the previous working version
-- **Docker and Docker Compose native** — Uses standard Docker stack under the hood
+Community (implemented):
 
-PRO features (donate!):
-- **Web UI** — Simple dashboard to monitor container states and trigger manual actions
-- **Shared volumes** — Each container receives mounted volumes from the host by default
-- **Lightweight** — Runs comfortably on a Raspberry Pi
-- **Zero dependencies** — Single Go binary + Docker, that's it
+- **Installer + wrapper** — `./stevedore-install.sh` + `stevedore.sh` (Docker-first)
+- **State on disk** — Everything under a single host directory (`/opt/stevedore` by default)
+- **Repo onboarding** — Generates an SSH deploy key per repository
+- **Parameters store** — SQLCipher-encrypted SQLite database + install-generated key
+- **Upstream main warning** — Warns if installed from `jonnyzzz/stevedore` `main`
+
+Community (next):
+
+- **Git polling + deployments** — Poll Git repositories and deploy via Docker Compose
+- **Self-managing** — Stevedore deploys itself (recommended from a fork)
+
+PRO (planned, documentation only for now):
+
+- **Web UI** (PRO) — Dashboard and logs viewer
+- **Advanced rollback** (PRO) — Multiple versions, retention policies
+- **Notifications** (PRO) — Slack/Webhooks
+- **Multi-user** (PRO) — AuthN/AuthZ for UI and API
 
 ## Quick Start
 
@@ -64,15 +95,48 @@ PRO features (donate!):
 ### Installation
 
 ```bash
-# Clone Stevedore
-git clone git@github.com:jonnyzzz/stevedore.git
+# Clone your fork
+git clone git@github.com:<you>/stevedore.git
 cd stevedore
 
-## Build and install stevedore containers to the host OS
+# Build and install Stevedore to the host OS
 ./stevedore-install.sh
+
+# Configure / operate Stevedore (installed by the script)
+stevedore.sh doctor
 ```
 
-## How It Works
+`stevedore-install.sh` installs the host wrapper `stevedore.sh` (default: `/usr/local/bin/stevedore.sh`).
+All configuration and operations are done by running `stevedore.sh …`, which executes the `stevedore`
+binary inside the running container via `docker exec`.
+
+### Add Your First Repository
+
+```bash
+stevedore.sh repo add homepage git@github.com:<you>/homepage.git --branch main
+stevedore.sh repo key homepage
+```
+
+Add the printed public key to your repo as a **read-only Deploy Key**.
+See `docs/REPOSITORIES.md`.
+
+### Secrets / Parameters
+
+Stevedore keeps configuration parameters (including secrets) in a local SQLCipher-encrypted SQLite database:
+
+`/opt/stevedore/system/stevedore.db`
+
+The database key is generated during installation and stored at:
+
+`/opt/stevedore/system/db.key`
+
+Use `stevedore.sh param set/get/list` to manage them. See `docs/SECRETS.md`.
+
+## How It Will Work (Target)
+
+Stevedore is early-stage; this section describes the intended runtime model.
+
+- The Stevedore container runs the daemon as `stevedore -d`.
 
 ### The Deployment Cycle
 
@@ -82,17 +146,26 @@ cd stevedore
 3. Builder clones the repo and runs `docker compose build`
 4. On successful build, Stevedore deploys the new containers
 5. Health checks run to verify the deployment
-6. If healthy → old containers are removed
-   If unhealthy → automatic rollback to previous version
+6. If healthy → old containers are replaced
+   If unhealthy → deployment is aborted (rollback is intentionally simple for now)
 ```
 
 ### Repository Contract
 
-Each managed repository must contain a `stevedore.yaml` file at its root.
-This file follows Docker Compose syntax with optional Stevedore-specific extensions:
+Each managed repository must contain a Docker Compose file at its root.
+
+Stevedore looks for these files (in order):
+
+1. `docker-compose.yaml` (recommended)
+2. `docker-compose.yml`
+3. `compose.yaml`
+4. `compose.yml`
+5. `stevedore.yaml` (legacy / backwards compatible)
+
+The file follows Docker Compose syntax with optional Stevedore-specific extensions:
 
 ```yaml
-# stevedore.yaml
+# docker-compose.yaml
 
 services:      ### usual docker compose below, it builds the application container!
   web:
@@ -126,11 +199,11 @@ without manual volume configuration:
 
 | Variable              | Path on Host                | Description                        |
 |-----------------------|-----------------------------|------------------------------------|
-| `${STEVEDORE_DATA}`   | `/opt/stevedore/data/{app}` | Per-application persistent storage |
+| `${STEVEDORE_DATA}`   | `/opt/stevedore/deployments/{deployment}/data` | Per-deployment persistent storage |
 | `${STEVEDORE_SHARED}` | `/opt/stevedore/shared`     | Shared across all applications     |
-| `${STEVEDORE_LOGS}`   | `/opt/stevedore/logs/{app}` | Application log directory          |
+| `${STEVEDORE_LOGS}`   | `/opt/stevedore/deployments/{deployment}/logs` | Per-deployment log directory      |
 
-Use these in your `stevedore.yaml`:
+Use these in your `docker-compose.yaml`:
 
 ```yaml
 services:
@@ -149,6 +222,12 @@ persisted under the container logs of the service.
 In the PRO version we allow checking the logs via Web UI together with
 logs retention. 
 
+## Documentation
+
+- `docs/IMPLEMENTATION_PLAN.md`
+- `docs/STATE_LAYOUT.md`
+- `docs/REPOSITORIES.md`
+- `docs/SECRETS.md`
 
 ## Architecture
 
@@ -165,7 +244,7 @@ logs retention.
 │  │  │ Stevedore Container (~15MB)        │                      │  │
 │  │  │ • Git polling                      │                      │  │
 │  │  │ • Container management             │                      │  │
-│  │  │ • Web UI                           │                      │  │
+│  │  │ • Web UI (PRO, planned)            │                      │  │
 │  │  │ • Health monitoring                │                      │  │
 │  │  └─────────────┬──────────────────────┘                      │  │
 │  │                │                                             │  │
@@ -186,7 +265,7 @@ logs retention.
 │                                                                    │
 │  Volumes:                                                          │
 │  /var/run/docker.sock    (Docker API)                              │
-│  /opt/stevedore/         (data, shared, logs, state)               │
+│  /opt/stevedore/         (system, deployments, shared, logs)       │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
