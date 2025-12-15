@@ -19,6 +19,14 @@ docker_cmd() {
   docker "$@"
 }
 
+docker_exec() {
+  if [ "${DOCKER_USE_SUDO}" = "1" ]; then
+    exec sudo docker exec "$@"
+  fi
+
+  exec docker exec "$@"
+}
+
 detect_docker_access() {
   if docker info >/dev/null 2>&1; then
     DOCKER_USE_SUDO=0
@@ -43,7 +51,7 @@ if ! docker_cmd ps --format '{{.Names}}' | grep -qx "${STEVEDORE_CONTAINER}"; th
 fi
 
 if [ -t 0 ] && [ -t 1 ]; then
-  exec docker_cmd exec -it "${STEVEDORE_CONTAINER}" "${STEVEDORE_BIN}" "$@"
+  docker_exec -it "${STEVEDORE_CONTAINER}" "${STEVEDORE_BIN}" "$@"
 fi
 
-exec docker_cmd exec -i "${STEVEDORE_CONTAINER}" "${STEVEDORE_BIN}" "$@"
+docker_exec -i "${STEVEDORE_CONTAINER}" "${STEVEDORE_BIN}" "$@"

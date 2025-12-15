@@ -3,6 +3,7 @@ set -eu
 
 STEVEDORE_HOST_ROOT="${STEVEDORE_HOST_ROOT:-/opt/stevedore}"
 STEVEDORE_WRAPPER_PATH="${STEVEDORE_WRAPPER_PATH:-/usr/local/bin/stevedore.sh}"
+STEVEDORE_CLI_PATH="${STEVEDORE_CLI_PATH:-/usr/local/bin/stevedore}"
 STEVEDORE_SERVICE_NAME="${STEVEDORE_SERVICE_NAME:-stevedore}"
 STEVEDORE_CONTAINER_NAME="${STEVEDORE_CONTAINER_NAME:-stevedore}"
 STEVEDORE_IMAGE="${STEVEDORE_IMAGE:-stevedore:latest}"
@@ -225,7 +226,7 @@ bootstrap_self_deployment() {
   fi
 
   log "Bootstrapping self deployment: ${deployment}"
-  ./stevedore.sh repo add "${deployment}" "${git_repo}" --branch "${git_branch}"
+  STEVEDORE_CONTAINER="${STEVEDORE_CONTAINER_NAME}" ./stevedore.sh repo add "${deployment}" "${git_repo}" --branch "${git_branch}"
 }
 
 main() {
@@ -275,15 +276,25 @@ main() {
     sudo_cmd chmod 0755 "${STEVEDORE_WRAPPER_PATH}"
   fi
 
+  if [ "${STEVEDORE_CLI_PATH}" != "${STEVEDORE_WRAPPER_PATH}" ]; then
+    log "Installing stevedore wrapper to ${STEVEDORE_CLI_PATH}"
+    if command -v install >/dev/null 2>&1; then
+      sudo_cmd install -m 0755 "./stevedore.sh" "${STEVEDORE_CLI_PATH}"
+    else
+      sudo_cmd cp "./stevedore.sh" "${STEVEDORE_CLI_PATH}"
+      sudo_cmd chmod 0755 "${STEVEDORE_CLI_PATH}"
+    fi
+  fi
+
   log "Running doctor"
-  ./stevedore.sh doctor
+  STEVEDORE_CONTAINER="${STEVEDORE_CONTAINER_NAME}" ./stevedore.sh doctor
 
   bootstrap_self_deployment
 
   log "Done."
   log "Next:"
-  log "  stevedore.sh doctor"
-  log "  stevedore.sh repo add <deployment> <git-url> --branch <branch>"
+  log "  stevedore doctor"
+  log "  stevedore repo add <deployment> <git-url> --branch <branch>"
 }
 
 main "$@"
