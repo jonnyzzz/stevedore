@@ -15,7 +15,7 @@ deployment automatically (so Stevedore can manage itself later).
 ## Add a Repository
 
 ```bash
-stevedore.sh repo add <deployment> <git-url> --branch <branch>
+stevedore repo add <deployment> <git-url> --branch <branch>
 ```
 
 `--branch` defaults to `main` if omitted.
@@ -23,7 +23,7 @@ stevedore.sh repo add <deployment> <git-url> --branch <branch>
 Example:
 
 ```bash
-stevedore.sh repo add homepage git@github.com:acme/homepage.git --branch main
+stevedore repo add homepage git@github.com:acme/homepage.git --branch main
 ```
 
 This creates the deployment state directory, generates an SSH keypair, and stores the repository URL
@@ -32,7 +32,7 @@ and branch.
 ## Get the Public Deploy Key
 
 ```bash
-stevedore.sh repo key <deployment>
+stevedore repo key <deployment>
 ```
 
 Add the printed public key to the Git hosting provider as a **read-only deploy key**.

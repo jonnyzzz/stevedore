@@ -46,7 +46,7 @@ Stevedore is early-stage. The current focus is:
 
 - A minimal host installation (`./stevedore-install.sh`) for Ubuntu and Raspberry Pi OS
 - A systemd service (`stevedore.service`) to keep Stevedore running across reboots
-- A host wrapper (`stevedore.sh`) that configures the running container via `docker exec`
+- A host wrapper (`stevedore`) that configures the running container via `docker exec` (`stevedore.sh` also works)
 - A file-backed state layout under a single mounted volume (`/opt/stevedore` by default)
 - Repository onboarding via generated SSH deploy keys
 - A parameters store in a SQLCipher-encrypted SQLite database (`/opt/stevedore/system/stevedore.db`)
@@ -67,7 +67,7 @@ Stevedore does exactly that — nothing more, nothing less. Simplicity is key.
 
 Community (implemented):
 
-- **Installer + wrapper** — `./stevedore-install.sh` + `stevedore.sh` (Docker-first)
+- **Installer + wrapper** — `./stevedore-install.sh` + `stevedore` (Docker-first)
 - **State on disk** — Everything under a single host directory (`/opt/stevedore` by default)
 - **Repo onboarding** — Generates an SSH deploy key per repository
 - **Parameters store** — SQLCipher-encrypted SQLite database + install-generated key
@@ -106,7 +106,7 @@ cd stevedore
 ./stevedore-install.sh
 
 # Configure / operate Stevedore (installed by the script)
-stevedore.sh doctor
+stevedore doctor
 ```
 
 Planned (public forks): a one-line installer (`curl | sh`). Target UX:
@@ -118,9 +118,11 @@ curl -fsSL https://raw.githubusercontent.com/<you>/stevedore/<ref>/stevedore-ins
 If the repository is not accessible without authorization, the installer should fail fast and ask
 you to fix access first.
 
-`stevedore-install.sh` installs the host wrapper `stevedore.sh` (default: `/usr/local/bin/stevedore.sh`).
-All configuration and operations are done by running `stevedore.sh …`, which executes the `stevedore`
+`stevedore-install.sh` installs the host wrapper `stevedore` (default: `/usr/local/bin/stevedore`).
+All configuration and operations are done by running `stevedore …`, which executes the `stevedore`
 binary inside the running container via `docker exec`.
+
+For compatibility, `stevedore-install.sh` also installs `stevedore.sh`.
 
 The installer also installs and enables `stevedore.service` (systemd), which runs a single container
 named `stevedore` and keeps it running across reboots.
@@ -131,8 +133,8 @@ deployment and prints an SSH Deploy Key for your fork (read-only).
 ### Add Your First Repository
 
 ```bash
-stevedore.sh repo add homepage git@github.com:<you>/homepage.git --branch main
-stevedore.sh repo key homepage
+stevedore repo add homepage git@github.com:<you>/homepage.git --branch main
+stevedore repo key homepage
 ```
 
 Add the printed public key to your repo as a **read-only Deploy Key**.
@@ -148,7 +150,7 @@ The database key is generated during installation and stored at:
 
 `/opt/stevedore/system/db.key`
 
-Use `stevedore.sh param set/get/list` to manage them. See `docs/SECRETS.md`.
+Use `stevedore param set/get/list` to manage them. See `docs/SECRETS.md`.
 
 ## How It Will Work (Target)
 

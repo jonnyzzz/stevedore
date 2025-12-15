@@ -43,7 +43,7 @@ Stevedore container.
 ## Notes
 
 - **Do not commit** anything from `/opt/stevedore` into Git.
-- Prefer using `stevedore.sh` to modify state instead of editing files directly.
+- Prefer using `stevedore` to modify state instead of editing files directly (`stevedore.sh` also works).
 - Most directories are created on-demand (installer creates `system/` and `deployments/`; `repo add` creates the per-deployment subfolders).
 - `system/container.env` is used by the installed `stevedore.service` systemd unit (`/etc/systemd/system/stevedore.service`).
 - v4 plan: SSH private keys move into the encrypted DB (`system/stevedore.db`) and are forwarded via an SSH agent socket; no private key files on disk.

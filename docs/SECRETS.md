@@ -9,7 +9,7 @@ Parameters are stored in a single SQLite database file:
 
 `/opt/stevedore/system/stevedore.db`
 
-The CLI (`stevedore.sh param …`) is responsible for writing/reading these values.
+The CLI (`stevedore param …`) is responsible for writing/reading these values (`stevedore.sh` also works).
 
 ### Encryption at rest (SQLCipher)
 
@@ -20,7 +20,8 @@ The CLI (`stevedore.sh param …`) is responsible for writing/reading these valu
   - `STEVEDORE_DB_KEY_FILE` (file path), defaulting to `/opt/stevedore/system/db.key`.
 
 This is still not a full secrets-management story (key rotation, audit, external backends), but it
-keeps secrets out of Git and encrypts them at rest.
+keeps secrets out of Git and encrypts them at rest. Treat this as a “good enough / poor-man”
+solution until we add rotation and/or an external secret backend.
 
 ## Backup and Recovery
 

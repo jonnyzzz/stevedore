@@ -27,9 +27,10 @@ See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
    - Installs and enables `stevedore.service` (systemd) to keep Stevedore running across reboots.
    - The container runs the daemon via `stevedore -d`.
    - Writes a container env file under `system/container.env`.
-   - Creates the host wrapper `stevedore.sh`.
+   - Installs host wrappers:
+     - `stevedore` (primary UX, installed into `PATH`)
+     - `stevedore.sh` (compatibility name)
    - Bootstraps a `stevedore` deployment (self-management) when installed from a Git checkout.
-   - Planned: installer also creates a `stevedore` command (no `.sh`) in `PATH`.
    - Planned: “curl | sh” install path for public forks (private forks require manual auth setup).
 2. **Fork warning**
    - The running container warns if installed from upstream `github.com/jonnyzzz/stevedore` `main`.
@@ -38,7 +39,7 @@ See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
    - A single state root directory (default `/opt/stevedore`), mounted into the container.
    - Per-deployment folders created on registration.
 4. **Repository onboarding**
-   - `stevedore.sh repo add …` registers a repo and generates an SSH deploy key.
+   - `stevedore repo add …` registers a repo and generates an SSH deploy key (`stevedore.sh` also works).
    - The tool prints the public key and instructions to add it as a read-only Deploy Key.
 5. **Parameters store (secrets)**
    - Parameters stored in a local SQLite database under `system/stevedore.db`.

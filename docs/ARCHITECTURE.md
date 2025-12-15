@@ -18,8 +18,8 @@ forward-looking; not everything here is implemented yet.
 - `stevedore.service` (systemd): keeps Stevedore running across reboots.
 - Host state directory: `/opt/stevedore` (override via `STEVEDORE_HOST_ROOT` at install time).
 - Host CLI:
-  - Current: `stevedore.sh` (wrapper that runs `docker exec`).
-  - Planned: `stevedore` (no `.sh`) installed into `PATH` as the primary UX.
+  - Primary: `stevedore` (wrapper that runs `docker exec`, installed into `PATH` by `stevedore-install.sh`).
+  - Compatibility: `stevedore.sh` (same wrapper, legacy name).
 
 ### Stevedore control-plane container
 
@@ -129,6 +129,9 @@ This improves observability (`docker ps` / `docker inspect`) and enables safe cl
 ## Docker Socket vs DinD (research)
 
 Current approach: mount the host Docker socket into the Stevedore container.
+
+DinD is explicitly postponed for now; we should keep the runtime model as simple as possible until
+we have a clear need and Raspberry Pi validation.
 
 To research:
 
