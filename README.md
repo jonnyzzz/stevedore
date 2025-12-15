@@ -217,10 +217,10 @@ Stevedore provides a standard volume mount to every container.
 This allows your services to persist data and share files 
 without manual volume configuration:
 
-| Variable              | Path on Host                | Description                        |
-|-----------------------|-----------------------------|------------------------------------|
+| Variable              | Path on Host                                   | Description                       |
+|-----------------------|------------------------------------------------|-----------------------------------|
 | `${STEVEDORE_DATA}`   | `/opt/stevedore/deployments/{deployment}/data` | Per-deployment persistent storage |
-| `${STEVEDORE_SHARED}` | `/opt/stevedore/shared`     | Shared across all applications     |
+| `${STEVEDORE_SHARED}` | `/opt/stevedore/shared`                        | Shared across all applications    |
 | `${STEVEDORE_LOGS}`   | `/opt/stevedore/deployments/{deployment}/logs` | Per-deployment log directory      |
 
 Use these in your `docker-compose.yaml`:

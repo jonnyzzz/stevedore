@@ -59,9 +59,6 @@ def _db_header_bytes(image, mount, *, cwd):
 class SmokeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if shutil.which("docker") is None:
-            raise unittest.SkipTest("docker is not installed")
-
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         cls._repo_root = repo_root
         cls._image = "stevedore:ci"
