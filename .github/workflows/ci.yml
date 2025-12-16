@@ -23,12 +23,12 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          python3 -m unittest discover -s tests/integration -p 'test_*.py' -v 2>&1 | tee integration.log
+          go test -tags=integration ./tests/integration -v -count=1 2>&1 | tee integration.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "${status}" -ne 0 ]; then
             lines="$(tail -n 80 integration.log | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')"
-            echo "::error file=tests/integration/test_smoke.py,line=1,title=Integration tests (Docker) failed::${lines}"
+            echo "::error file=tests/integration/install_test.go,line=1,title=Integration tests (Docker) failed::${lines}"
             exit "${status}"
           fi
 

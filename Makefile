@@ -7,7 +7,7 @@ test:
 	go test ./...
 
 test-integration:
-	python3 -m unittest discover -s tests/integration -p 'test_*.py'
+	go test -tags=integration ./tests/integration -v -count=1
 
 docker-build:
 	docker build -t stevedore:local .
