@@ -45,7 +45,7 @@ the upstream repo can unexpectedly redeploy your host.
 Stevedore is early-stage. The current focus is:
 
 - A minimal host installation (`./stevedore-install.sh`) for Ubuntu and Raspberry Pi OS
-- A systemd service (`stevedore.service`) to keep Stevedore running across reboots
+- A systemd service (`stevedore.service`) to keep Stevedore running across reboots (fallback to `--restart unless-stopped` when systemd is unavailable)
 - A host wrapper (`stevedore`) that configures the running container via `docker exec` (`stevedore.sh` also works)
 - A file-backed state layout under a single mounted volume (`/opt/stevedore` by default)
 - Repository onboarding via generated SSH deploy keys
@@ -124,8 +124,9 @@ binary inside the running container via `docker exec`.
 
 For compatibility, `stevedore-install.sh` also installs `stevedore.sh`.
 
-The installer also installs and enables `stevedore.service` (systemd), which runs a single container
-named `stevedore` and keeps it running across reboots.
+The installer prefers systemd and installs/enables `stevedore.service` when available, which runs a
+single container named `stevedore` across reboots. On hosts without systemd, the installer starts
+the container with a Docker restart policy (`--restart unless-stopped`).
 
 If the installer detects it is running from a Git checkout, it also bootstraps a `stevedore`
 deployment and prints an SSH Deploy Key for your fork (read-only).
@@ -248,6 +249,7 @@ logs retention.
 - `docs/STATE_LAYOUT.md`
 - `docs/REPOSITORIES.md`
 - `docs/SECRETS.md`
+- `docs/INTEGRATION_TEST_PLAN.md`
 
 ## Architecture
 
@@ -255,7 +257,7 @@ logs retention.
 ┌────────────────────────────────────────────────────────────────────┐
 │ Host System                                                        │
 │                                                                    │
-│  systemd: stevedore.service (ensures Stevedore always runs)        │
+│  systemd: stevedore.service (preferred; otherwise Docker restart)  │
 │                                                                    │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │ Docker                                                       │  │

@@ -5,7 +5,7 @@ forward-looking; not everything here is implemented yet.
 
 ## Goals
 
-- **Single host container**: one long-running Stevedore container managed by systemd.
+- **Single host container**: one long-running Stevedore container (systemd preferred; fallback to Docker restart policy when systemd is unavailable).
 - **Minimal host dependencies**: “Docker-first”, tested on Ubuntu and Raspberry Pi OS.
 - **State on disk**: everything persisted under one host directory (`/opt/stevedore` by default).
 - **Resilience**: survives reboots, restarts cleanly, does not take down workloads when Stevedore restarts.
@@ -15,7 +15,7 @@ forward-looking; not everything here is implemented yet.
 
 ### Host OS
 
-- `stevedore.service` (systemd): keeps Stevedore running across reboots.
+- `stevedore.service` (systemd, preferred): keeps Stevedore running across reboots (otherwise `--restart unless-stopped`).
 - Host state directory: `/opt/stevedore` (override via `STEVEDORE_HOST_ROOT` at install time).
 - Host CLI:
   - Primary: `stevedore` (wrapper that runs `docker exec`, installed into `PATH` by `stevedore-install.sh`).

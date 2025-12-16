@@ -73,7 +73,7 @@ Feature requests are welcome! Please:
 
 - [ ] Code compiles without errors (`make build`)
 - [ ] All tests pass (`make test`)
-- [ ] Integration tests pass (`make test-integration`) (requires Docker)
+- [ ] Integration tests pass (`make test-integration`) (requires Docker + outbound network)
 - [ ] Code is formatted (`make fmt`)
 - [ ] New code has appropriate test coverage
 - [ ] Documentation is updated if needed
