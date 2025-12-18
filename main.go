@@ -47,7 +47,7 @@ func main() {
 		printUsage(os.Stdout)
 		return
 	case "version":
-		fmt.Printf("stevedore %s\n", buildInfoSummary())
+		_, _ = fmt.Printf("stevedore %s\n", buildInfoSummary())
 		return
 	case "doctor":
 		if err := runDoctor(instance); err != nil {
@@ -125,10 +125,10 @@ func runDoctor(instance *stevedore.Instance) error {
 		return err
 	}
 
-	fmt.Printf("stevedore %s\n", buildInfoSummary())
-	fmt.Printf("root: %s\n", instance.Root)
-	fmt.Printf("db: %s\n", instance.DBPath())
-	fmt.Printf("deployments: %d\n", len(deployments))
+	_, _ = fmt.Printf("stevedore %s\n", buildInfoSummary())
+	_, _ = fmt.Printf("root: %s\n", instance.Root)
+	_, _ = fmt.Printf("db: %s\n", instance.DBPath())
+	_, _ = fmt.Printf("deployments: %d\n", len(deployments))
 	return nil
 }
 
@@ -157,8 +157,8 @@ func runRepo(instance *stevedore.Instance, args []string) error {
 			return err
 		}
 
-		fmt.Printf("Repository registered: %s\n", deployment)
-		fmt.Printf("Add this public key as a read-only Deploy Key:\n\n%s\n", publicKey)
+		_, _ = fmt.Printf("Repository registered: %s\n", deployment)
+		_, _ = fmt.Printf("Add this public key as a read-only Deploy Key:\n\n%s\n", publicKey)
 		return nil
 
 	case "key":
@@ -169,7 +169,7 @@ func runRepo(instance *stevedore.Instance, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println(publicKey)
+		_, _ = fmt.Println(publicKey)
 		return nil
 
 	case "list":
@@ -181,7 +181,7 @@ func runRepo(instance *stevedore.Instance, args []string) error {
 			return err
 		}
 		for _, d := range deployments {
-			fmt.Println(d)
+			_, _ = fmt.Println(d)
 		}
 		return nil
 
@@ -227,7 +227,7 @@ func runParam(instance *stevedore.Instance, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Print(string(value))
+		_, _ = fmt.Print(string(value))
 		return nil
 
 	case "list":
@@ -239,7 +239,7 @@ func runParam(instance *stevedore.Instance, args []string) error {
 			return err
 		}
 		for _, n := range names {
-			fmt.Println(n)
+			_, _ = fmt.Println(n)
 		}
 		return nil
 
@@ -291,16 +291,16 @@ func getEnvDefault(name string, defaultValue string) string {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  stevedore -d              # run daemon")
-	fmt.Fprintln(w, "  stevedore doctor")
-	fmt.Fprintln(w, "  stevedore version")
-	fmt.Fprintln(w, "  stevedore repo add <deployment> <git-url> [--branch <branch>]")
-	fmt.Fprintln(w, "  stevedore repo key <deployment>")
-	fmt.Fprintln(w, "  stevedore repo list")
-	fmt.Fprintln(w, "  stevedore param set <deployment> <name> <value> | ... --stdin")
-	fmt.Fprintln(w, "  stevedore param get <deployment> <name>")
-	fmt.Fprintln(w, "  stevedore param list <deployment>")
+	_, _ = fmt.Fprintln(w, "Usage:")
+	_, _ = fmt.Fprintln(w, "  stevedore -d              # run daemon")
+	_, _ = fmt.Fprintln(w, "  stevedore doctor")
+	_, _ = fmt.Fprintln(w, "  stevedore version")
+	_, _ = fmt.Fprintln(w, "  stevedore repo add <deployment> <git-url> [--branch <branch>]")
+	_, _ = fmt.Fprintln(w, "  stevedore repo key <deployment>")
+	_, _ = fmt.Fprintln(w, "  stevedore repo list")
+	_, _ = fmt.Fprintln(w, "  stevedore param set <deployment> <name> <value> | ... --stdin")
+	_, _ = fmt.Fprintln(w, "  stevedore param get <deployment> <name>")
+	_, _ = fmt.Fprintln(w, "  stevedore param list <deployment>")
 }
 
 func buildInfoSummary() string {
