@@ -2,104 +2,54 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestInstaller_UbuntuDonorContainer(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	donor := NewTestContainer(t, "Dockerfile.ubuntu")
 
-	docker := NewDockerCLI(t, ctx)
-	if !docker.HasDocker() {
-		t.Skip("docker is not installed")
-	}
-
-	repoRoot := repoRoot(t)
-
-	runID := fmt.Sprintf("%d", time.Now().UnixNano())
-	containerPrefix := "stevedore-it-" + runID
-	donorName := containerPrefix + "-donor"
-	stevedoreContainerName := containerPrefix + "-stevedore"
-	imageTag := "stevedore:it-" + runID
-
-	stateRoot := filepath.Join(repoRoot, ".tmp", "install-"+runID)
-	if err := os.MkdirAll(stateRoot, 0o755); err != nil {
-		t.Fatalf("mkdir state root: %v", err)
-	}
-
-	t.Cleanup(func() { _ = os.RemoveAll(stateRoot) })
-	t.Cleanup(func() { docker.RemoveImage(imageTag) })
-	t.Cleanup(func() { docker.RemoveContainer(stevedoreContainerName) })
-	t.Cleanup(func() { docker.RemoveContainer(donorName) })
-
-	docker.RemoveContainersByPrefix("stevedore-it-")
-
-	docker.RunOK(
-		"run",
-		"-d",
-		"--name", donorName,
-		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-		"-v", repoRoot+":/tmp/stevedore-src:ro",
-		"-v", stateRoot+":"+stateRoot,
-		"ubuntu:22.04",
-		"sleep", "infinity",
-	)
-
-	donor := docker.Container(donorName)
-
-	donor.ExecBashOKTimeout(
-		map[string]string{"DEBIAN_FRONTEND": "noninteractive"},
-		"apt-get update -qq && apt-get install -y --no-install-recommends -qq ca-certificates git docker.io",
-		10*time.Minute,
-	)
-
-	donor.ExecBashOK(
-		nil,
-		"rm -rf /work/stevedore && mkdir -p /work/stevedore && cp -a /tmp/stevedore-src/. /work/stevedore/",
-	)
+	// Copy sources to a writable work directory
+	donor.CopySourcesToWorkDir("/work/stevedore")
 	donor.ExecOK("test", "-x", "/work/stevedore/stevedore-install.sh")
 
 	installEnv := map[string]string{
 		"STEVEDORE_ALLOW_UPSTREAM_MAIN": "1",
 		"STEVEDORE_ASSUME_YES":          "1",
 		"STEVEDORE_BOOTSTRAP_SELF":      "0",
-		"STEVEDORE_CONTAINER_NAME":      stevedoreContainerName,
-		"STEVEDORE_HOST_ROOT":           stateRoot,
-		"STEVEDORE_IMAGE":               imageTag,
+		"STEVEDORE_CONTAINER_NAME":      donor.StevedoreContainerName,
+		"STEVEDORE_HOST_ROOT":           donor.StateDir,
+		"STEVEDORE_IMAGE":               donor.StevedoreImageTag,
 	}
 	donor.ExecBashOKTimeout(installEnv, "cd /work/stevedore && ./stevedore-install.sh", 20*time.Minute)
 
-	dbKeyPath := filepath.Join(stateRoot, "system", "db.key")
-	containerEnvPath := filepath.Join(stateRoot, "system", "container.env")
+	dbKeyPath := filepath.Join(donor.StateDir, "system", "db.key")
+	containerEnvPath := filepath.Join(donor.StateDir, "system", "container.env")
 	donor.ExecOK("test", "-s", dbKeyPath)
 	donor.ExecOK("test", "-f", containerEnvPath)
 
 	runningNames := donor.ExecOK("docker", "ps", "--format", "{{.Names}}")
-	if !containsLine(runningNames, stevedoreContainerName) {
-		t.Fatalf("expected stevedore container to be running: %s", stevedoreContainerName)
+	if !containsLine(runningNames, donor.StevedoreContainerName) {
+		t.Fatalf("expected stevedore container to be running: %s", donor.StevedoreContainerName)
 	}
 
-	restartPolicy := strings.TrimSpace(donor.ExecOK("docker", "inspect", "-f", "{{.HostConfig.RestartPolicy.Name}}", stevedoreContainerName))
+	restartPolicy := strings.TrimSpace(donor.ExecOK("docker", "inspect", "-f", "{{.HostConfig.RestartPolicy.Name}}", donor.StevedoreContainerName))
 	if restartPolicy != "unless-stopped" {
 		t.Fatalf("unexpected restart policy: %q", restartPolicy)
 	}
 
-	imageUsed := strings.TrimSpace(donor.ExecOK("docker", "inspect", "-f", "{{.Config.Image}}", stevedoreContainerName))
-	if imageUsed != imageTag {
-		t.Fatalf("unexpected stevedore image: %q (want %q)", imageUsed, imageTag)
+	imageUsed := strings.TrimSpace(donor.ExecOK("docker", "inspect", "-f", "{{.Config.Image}}", donor.StevedoreContainerName))
+	if imageUsed != donor.StevedoreImageTag {
+		t.Fatalf("unexpected stevedore image: %q (want %q)", imageUsed, donor.StevedoreImageTag)
 	}
 
 	donor.ExecOK("test", "-x", "/usr/local/bin/stevedore")
 
-	wrapperEnv := map[string]string{"STEVEDORE_CONTAINER": stevedoreContainerName}
+	wrapperEnv := map[string]string{"STEVEDORE_CONTAINER": donor.StevedoreContainerName}
 	doctorOut := donor.ExecEnvOK(wrapperEnv, "stevedore", "doctor")
 	if !strings.Contains(doctorOut, "deployments:") {
 		t.Fatalf("unexpected doctor output: %q", doctorOut)
@@ -110,7 +60,7 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 	if !strings.HasPrefix(versionOut, "stevedore "+expectedVersion) {
 		t.Fatalf("unexpected version output: %q", versionOut)
 	}
-	directVersionOut := strings.TrimSpace(donor.ExecOK("docker", "exec", "-i", stevedoreContainerName, "/app/stevedore", "version"))
+	directVersionOut := strings.TrimSpace(donor.ExecOK("docker", "exec", "-i", donor.StevedoreContainerName, "/app/stevedore", "version"))
 	if directVersionOut != versionOut {
 		t.Fatalf("wrapper version differs from direct exec: wrapper=%q direct=%q", versionOut, directVersionOut)
 	}
@@ -141,7 +91,7 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 		t.Fatalf("unexpected parameter value: %q", value)
 	}
 
-	dbPath := filepath.Join(stateRoot, "system", "stevedore.db")
+	dbPath := filepath.Join(donor.StateDir, "system", "stevedore.db")
 	header, err := readFileHeader(dbPath, 16)
 	if err != nil {
 		t.Fatalf("read db header: %v", err)
@@ -150,32 +100,16 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 		t.Fatalf("database file looks unencrypted (SQLite header detected): %s", dbPath)
 	}
 
-	wrongKeyRes, err := donor.Exec("docker", "exec", "-e", "STEVEDORE_DB_KEY=wrong", stevedoreContainerName, "/app/stevedore", "param", "get", "demo", "DEMO_KEY")
+	wrongKeyRes, err := donor.Exec("docker", "exec", "-e", "STEVEDORE_DB_KEY=wrong", donor.StevedoreContainerName, "/app/stevedore", "param", "get", "demo", "DEMO_KEY")
 	if err == nil && wrongKeyRes.ExitCode == 0 {
 		t.Fatalf("expected wrong DB key to fail, but command succeeded")
 	}
 
-	legacyParamFile := filepath.Join(stateRoot, "deployments", "demo", "parameters", "DEMO_KEY.txt")
+	legacyParamFile := filepath.Join(donor.StateDir, "deployments", "demo", "parameters", "DEMO_KEY.txt")
 	res, err := donor.Exec("test", "!", "-f", legacyParamFile)
 	if err != nil || res.ExitCode != 0 {
 		t.Fatalf("legacy parameter file exists (should not): %s", legacyParamFile)
 	}
-}
-
-func repoRoot(t testing.TB) string {
-	t.Helper()
-
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("failed to determine current file location")
-	}
-
-	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "../.."))
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		t.Fatalf("abs repo root: %v", err)
-	}
-	return abs
 }
 
 func readFileHeader(path string, n int) ([]byte, error) {
