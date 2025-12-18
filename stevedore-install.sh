@@ -230,8 +230,12 @@ bootstrap_self_deployment() {
 }
 
 main() {
+  # Change to the script's directory (assumes .git is there)
+  script_dir="$(cd "$(dirname "$0")" && pwd)" || die "Failed to determine script directory"
+  cd "$script_dir" || die "Failed to change to script directory: $script_dir"
+
   [ "$(uname -s)" = "Linux" ] || die "This installer supports Linux only."
-  [ -f "Dockerfile" ] || die "Run this script from the repository root (Dockerfile not found)."
+  [ -f "Dockerfile" ] || die "Dockerfile not found in script directory: $script_dir"
 
   git_repo=""
   git_branch=""
