@@ -1,6 +1,3 @@
-//go:build integration
-// +build integration
-
 package integration_test
 
 import (
@@ -45,23 +42,15 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 
 	docker.RemoveContainersByPrefix("stevedore-it-")
 
-	repoRootMount := repoRoot + ":/tmp/stevedore-src:ro"
-	stateRootMount := stateRoot + ":" + stateRoot
-
 	docker.RunOK(
 		"run",
 		"-d",
-		"--name",
-		donorName,
-		"-v",
-		"/var/run/docker.sock:/var/run/docker.sock",
-		"-v",
-		repoRootMount,
-		"-v",
-		stateRootMount,
+		"--name", donorName,
+		"-v", "/var/run/docker.sock:/var/run/docker.sock",
+		"-v", repoRoot+":/tmp/stevedore-src:ro",
+		"-v", stateRoot+":"+stateRoot,
 		"ubuntu:22.04",
-		"sleep",
-		"infinity",
+		"sleep", "infinity",
 	)
 
 	donor := docker.Container(donorName)
