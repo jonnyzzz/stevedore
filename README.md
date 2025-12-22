@@ -69,16 +69,19 @@ Community (implemented):
 
 - **Installer + wrapper** — `./stevedore-install.sh` + `stevedore` (Docker-first)
 - **State on disk** — Everything under a single host directory (`/opt/stevedore` by default)
-- **Repo onboarding** — Generates an SSH deploy key per repository
+- **Repo onboarding** — Generates an SSH deploy key per repository with GitHub URL suggestion
 - **Parameters store** — SQLCipher-encrypted SQLite database + install-generated key
+- **Git sync** — Worker container pattern for isolated Git operations (`stevedore deploy sync`)
+- **Compose deployment** — Deploy via Docker Compose with health monitoring (`stevedore deploy up/down`)
+- **Status + health** — Container health monitoring (`stevedore status`)
 - **Upstream main warning** — Warns if installed from `jonnyzzz/stevedore` `main`
 - **Build metadata** — `VERSION` + git info embedded into the binary/image
 
-Community (next):
+Community (next — v0-3):
 
-- **Status + health** — `stevedore status` and a daemon HTTP endpoint on port `42107`
-- **Git polling + deployments** — Poll Git repositories and deploy via Docker Compose
-- **Self-managing** — Stevedore deploys itself (recommended from a fork)
+- **Daemon polling loop** — Automated Git sync and deployment on changes
+- **HTTP API** — Health endpoint and admin-authenticated triggers on port `42107`
+- **Self-update** — Stevedore updates itself via worker container
 
 PRO (planned, documentation only for now):
 
@@ -134,8 +137,23 @@ deployment and prints an SSH Deploy Key for your fork (read-only).
 ### Add Your First Repository
 
 ```bash
+# Register the repository (generates SSH deploy key)
 stevedore repo add homepage git@github.com:<you>/homepage.git --branch main
+
+# Show the public key (add to GitHub as Deploy Key)
 stevedore repo key homepage
+
+# Sync the repository (clones via worker container)
+stevedore deploy sync homepage
+
+# Deploy the application
+stevedore deploy up homepage
+
+# Check deployment status
+stevedore status homepage
+
+# Stop the deployment
+stevedore deploy down homepage
 ```
 
 Add the printed public key to your repo as a **read-only Deploy Key**.

@@ -33,29 +33,48 @@ forward-looking; not everything here is implemented yet.
   - Admin key generated at install time and stored under `system/` (see `docs/STATE_LAYOUT.md`).
 - Planned: simple web UI (React) served by the same daemon for status + admin operations.
 
-### Worker containers (planned)
+### Worker containers
 
-Stevedore should avoid running “mutable” or potentially risky operations in the long-running daemon
+Stevedore avoids running "mutable" or potentially risky operations in the long-running daemon
 container when feasible.
 
-- **Git worker**: clone/poll repositories inside a short-lived container.
-- **Deploy worker**: run `docker compose` apply steps inside a short-lived container.
-- **Update worker**: update Stevedore itself by stopping/replacing the running Stevedore container
+- **Git worker** (implemented): clone/poll repositories inside a short-lived `alpine/git` container.
+  - See `internal/stevedore/git_worker.go`
+  - Uses deployment SSH key for authentication
+  - Mounts state directory for checkout storage
+  - Labels: `com.stevedore.managed=true`, `com.stevedore.role=git-worker`
+
+- **Deploy worker** (planned): run `docker compose` apply steps inside a short-lived container.
+  - Currently runs compose from within Stevedore container
+  - Future: isolate compose operations in dedicated worker
+
+- **Update worker** (planned): update Stevedore itself by stopping/replacing the running Stevedore container
   (self-update without the control-plane container killing itself).
 
 All workers operate via the host Docker socket and the mounted state directory.
 
-## Deployment Model (planned)
+## Deployment Model
 
 Each deployment is a Git repository with a Compose file at its root (`docker-compose.yaml` preferred).
 
-High-level cycle:
+### Implemented (v0-2)
 
-1. Poll remote repository for changes (git worker).
-2. Prepare a new revision (clone/checkout; build images) without stopping the currently running services.
-3. Apply Compose changes (deploy worker).
+Manual deployment cycle via CLI:
+
+1. `stevedore deploy sync <name>` — Clone/fetch repository using git worker container
+2. `stevedore deploy up <name>` — Run `docker compose up -d` with project name `stevedore-<name>`
+3. `stevedore status <name>` — Check container health status
+4. `stevedore deploy down <name>` — Stop deployment
+
+### Planned (v0-3)
+
+Automated polling cycle:
+
+1. Poll remote repository for changes at configured intervals (git worker).
+2. Detect changes by comparing HEAD with last-seen revision.
+3. On change: sync → build → deploy automatically.
 4. Validate basic health checks.
-5. Persist status + last seen revision under `/opt/stevedore`.
+5. Persist status + last seen revision in SQLite DB.
 
 ## Self-Update (planned)
 

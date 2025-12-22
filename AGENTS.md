@@ -54,9 +54,35 @@ Database migrations:
 - `TestMigrations_VersionsAreSequential` ensures migrations are properly numbered.
 - `TestMigrations_Idempotent` ensures migrations can run multiple times safely.
 
+Current CLI commands:
+
+- `stevedore doctor` — Health check
+- `stevedore version` — Show version info
+- `stevedore repo add <name> <url> --branch <branch>` — Add deployment with SSH key
+- `stevedore repo key <name>` — Show public key for deployment
+- `stevedore repo list` — List all deployments
+- `stevedore param set/get/list` — Manage encrypted parameters
+- `stevedore deploy sync <name>` — Git sync via worker container
+- `stevedore deploy up <name>` — Deploy via docker compose
+- `stevedore deploy down <name>` — Stop deployment
+- `stevedore status [name]` — Show deployment/container status
+
+Worker containers:
+
+- Git operations run in isolated `alpine/git` containers for security.
+- Worker containers are labeled with `com.stevedore.managed=true` and `com.stevedore.role=git-worker`.
+- See `internal/stevedore/git_worker.go` for implementation.
+
+Health monitoring:
+
+- Container health status is checked via `docker inspect`.
+- Supports Docker's built-in healthcheck states: healthy, unhealthy, starting, none.
+- See `internal/stevedore/health.go` for implementation.
+
 Integration tests (current state):
 
 - Installer integration test is written in Go under `tests/integration/` (build tag: `integration`) and documented in `docs/INTEGRATION_TEST_PLAN.md`.
 - Test strategy: start an Ubuntu donor container (`sleep infinity`), mount the checkout read-only, copy it into a work dir, run `./stevedore-install.sh`, then validate via minimal `docker exec` calls.
 - All spawned processes must pipe and stream output line-by-line to the test output (no inherited stdio) to keep CI logs readable.
 - Tests must best-effort cleanup stale containers (use a predictable prefix like `stevedore-it-`).
+- Deployment workflow test exists (`tests/integration/deploy_test.go`) but is skipped in CI due to SSH complexity.
