@@ -118,4 +118,3 @@ func (i *Instance) ListParameters(deployment string) ([]string, error) {
 	}
 	return names, nil
 }
-

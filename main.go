@@ -67,6 +67,18 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	case "deploy":
+		if err := runDeploy(instance, args[1:]); err != nil {
+			log.Printf("ERROR: %v", err)
+			os.Exit(1)
+		}
+		return
+	case "status":
+		if err := runStatus(instance, args[1:]); err != nil {
+			log.Printf("ERROR: %v", err)
+			os.Exit(1)
+		}
+		return
 	default:
 		log.Printf("ERROR: unknown command: %s", args[0])
 		printUsage(os.Stderr)
@@ -302,14 +314,130 @@ func getEnvDefault(name string, defaultValue string) string {
 	return defaultValue
 }
 
+func runDeploy(instance *stevedore.Instance, args []string) error {
+	if len(args) == 0 {
+		return errors.New("deploy: missing subcommand (sync|up|down)")
+	}
+
+	ctx := context.Background()
+
+	switch args[0] {
+	case "sync":
+		if len(args) != 2 {
+			return errors.New("usage: deploy sync <deployment>")
+		}
+		deployment := args[1]
+
+		_, _ = fmt.Printf("Syncing repository for %s...\n", deployment)
+		result, err := instance.GitCloneLocal(ctx, deployment)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Printf("Repository synced: %s@%s\n", result.Branch, shortCommit(result.Commit))
+		return nil
+
+	case "up":
+		if len(args) != 2 {
+			return errors.New("usage: deploy up <deployment>")
+		}
+		deployment := args[1]
+
+		_, _ = fmt.Printf("Deploying %s...\n", deployment)
+		result, err := instance.Deploy(ctx, deployment, stevedore.ComposeConfig{})
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Printf("Deployed: %s (compose file: %s)\n", result.ProjectName, result.ComposeFile)
+		if len(result.Services) > 0 {
+			_, _ = fmt.Printf("Services: %s\n", strings.Join(result.Services, ", "))
+		}
+		return nil
+
+	case "down":
+		if len(args) != 2 {
+			return errors.New("usage: deploy down <deployment>")
+		}
+		deployment := args[1]
+
+		_, _ = fmt.Printf("Stopping %s...\n", deployment)
+		if err := instance.Stop(ctx, deployment, stevedore.ComposeConfig{}); err != nil {
+			return err
+		}
+		_, _ = fmt.Printf("Stopped: %s\n", deployment)
+		return nil
+
+	default:
+		return fmt.Errorf("deploy: unknown subcommand: %s", args[0])
+	}
+}
+
+func runStatus(instance *stevedore.Instance, args []string) error {
+	ctx := context.Background()
+
+	if len(args) == 0 {
+		// List all deployments with status
+		deployments, err := instance.ListDeployments()
+		if err != nil {
+			return err
+		}
+		if len(deployments) == 0 {
+			_, _ = fmt.Println("No deployments found")
+			return nil
+		}
+
+		for _, d := range deployments {
+			status, err := instance.GetDeploymentStatus(ctx, d)
+			if err != nil {
+				_, _ = fmt.Printf("%-20s  ERROR: %v\n", d, err)
+				continue
+			}
+			healthMark := "✓"
+			if !status.Healthy {
+				healthMark = "✗"
+			}
+			_, _ = fmt.Printf("%-20s  %s  %s\n", d, healthMark, status.Message)
+		}
+		return nil
+	}
+
+	// Show detailed status for specific deployment
+	deployment := args[0]
+	status, err := instance.GetDeploymentStatus(ctx, deployment)
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Printf("Deployment: %s\n", status.Deployment)
+	_, _ = fmt.Printf("Project:    %s\n", status.ProjectName)
+	_, _ = fmt.Printf("Healthy:    %v\n", status.Healthy)
+	_, _ = fmt.Printf("Status:     %s\n", status.Message)
+
+	if len(status.Containers) > 0 {
+		_, _ = fmt.Println("\nContainers:")
+		for _, c := range status.Containers {
+			healthInfo := ""
+			if c.Health != stevedore.HealthNone {
+				healthInfo = fmt.Sprintf(" [%s]", c.Health)
+			}
+			_, _ = fmt.Printf("  %-20s  %-12s  %s%s\n", c.Service, c.ID, c.Status, healthInfo)
+		}
+	}
+
+	return nil
+}
+
 func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  stevedore -d              # run daemon")
 	_, _ = fmt.Fprintln(w, "  stevedore doctor")
 	_, _ = fmt.Fprintln(w, "  stevedore version")
+	_, _ = fmt.Fprintln(w, "  stevedore status [<deployment>]")
 	_, _ = fmt.Fprintln(w, "  stevedore repo add <deployment> <git-url> [--branch <branch>]")
 	_, _ = fmt.Fprintln(w, "  stevedore repo key <deployment>")
 	_, _ = fmt.Fprintln(w, "  stevedore repo list")
+	_, _ = fmt.Fprintln(w, "  stevedore deploy sync <deployment>")
+	_, _ = fmt.Fprintln(w, "  stevedore deploy up <deployment>")
+	_, _ = fmt.Fprintln(w, "  stevedore deploy down <deployment>")
 	_, _ = fmt.Fprintln(w, "  stevedore param set <deployment> <name> <value> | ... --stdin")
 	_, _ = fmt.Fprintln(w, "  stevedore param get <deployment> <name>")
 	_, _ = fmt.Fprintln(w, "  stevedore param list <deployment>")
