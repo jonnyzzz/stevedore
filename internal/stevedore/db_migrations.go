@@ -43,12 +43,29 @@ CREATE TABLE IF NOT EXISTS parameters (
 );
 `,
 	},
-	// Add new migrations here. Example:
-	// {
-	// 	Version:     2,
-	// 	Description: "Add status column to deployments",
-	// 	Up:          `ALTER TABLE deployments ADD COLUMN status TEXT NOT NULL DEFAULT 'active';`,
-	// },
+	{
+		Version:     2,
+		Description: "Add sync status tracking and poll configuration",
+		Up: `
+CREATE TABLE IF NOT EXISTS sync_status (
+	deployment TEXT PRIMARY KEY,
+	last_commit TEXT,
+	last_sync_at INTEGER,
+	last_deploy_at INTEGER,
+	last_error TEXT,
+	last_error_at INTEGER,
+	FOREIGN KEY (deployment) REFERENCES deployments(name) ON DELETE CASCADE
+);
+`,
+	},
+	{
+		Version:     3,
+		Description: "Add poll interval and enabled flag to repositories",
+		Up: `
+ALTER TABLE repositories ADD COLUMN poll_interval_seconds INTEGER NOT NULL DEFAULT 300;
+ALTER TABLE repositories ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;
+`,
+	},
 }
 
 // CurrentSchemaVersion returns the latest migration version.

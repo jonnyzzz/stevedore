@@ -135,6 +135,24 @@ ensure_db_key() {
   sudo_cmd sh -c "umask 077; printf '%s\n' '${key}' > '${key_path}'"
 }
 
+ensure_admin_key() {
+  key_path="${STEVEDORE_HOST_ROOT}/system/admin.key"
+
+  if sudo_cmd test -f "${key_path}"; then
+    return 0
+  fi
+
+  log "Generating admin API key: ${key_path}"
+  if ! command -v base64 >/dev/null 2>&1; then
+    die "base64 is required to generate the admin key"
+  fi
+
+  key="$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64 | tr -d '\n')"
+  [ -n "${key}" ] || die "Failed to generate admin key"
+
+  sudo_cmd sh -c "umask 077; printf '%s\n' '${key}' > '${key_path}'"
+}
+
 have_systemd() {
   command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
 }
@@ -146,6 +164,7 @@ write_container_env() {
   sudo_cmd sh -c "umask 077; cat > '${STEVEDORE_CONTAINER_ENV}'" <<EOF
 STEVEDORE_ROOT=/opt/stevedore
 STEVEDORE_DB_KEY_FILE=/opt/stevedore/system/db.key
+STEVEDORE_ADMIN_KEY_FILE=/opt/stevedore/system/admin.key
 STEVEDORE_SOURCE_REPO=${git_repo}
 STEVEDORE_SOURCE_REF=${git_branch}
 EOF
@@ -172,7 +191,7 @@ Type=simple
 Restart=always
 RestartSec=2
 ExecStartPre=-${docker_bin} rm -f ${STEVEDORE_CONTAINER_NAME}
-ExecStart=${docker_bin} run --name ${STEVEDORE_CONTAINER_NAME} --env-file ${STEVEDORE_CONTAINER_ENV} -v /var/run/docker.sock:/var/run/docker.sock -v ${STEVEDORE_HOST_ROOT}:/opt/stevedore ${STEVEDORE_IMAGE}
+ExecStart=${docker_bin} run --name ${STEVEDORE_CONTAINER_NAME} --env-file ${STEVEDORE_CONTAINER_ENV} -p 42107:42107 -v /var/run/docker.sock:/var/run/docker.sock -v ${STEVEDORE_HOST_ROOT}:/opt/stevedore ${STEVEDORE_IMAGE}
 ExecStop=-${docker_bin} stop ${STEVEDORE_CONTAINER_NAME}
 TimeoutStopSec=30
 
@@ -190,6 +209,7 @@ start_container_without_systemd() {
   docker_cmd rm -f "${STEVEDORE_CONTAINER_NAME}" >/dev/null 2>&1 || true
   docker_cmd run -d --name "${STEVEDORE_CONTAINER_NAME}" --restart unless-stopped \
     --env-file "${STEVEDORE_CONTAINER_ENV}" \
+    -p 42107:42107 \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "${STEVEDORE_HOST_ROOT}:/opt/stevedore" \
     "${STEVEDORE_IMAGE}" >/dev/null
@@ -277,6 +297,7 @@ To install Stevedore:
   log "Creating state directory: ${STEVEDORE_HOST_ROOT}"
   sudo_cmd mkdir -p "${STEVEDORE_HOST_ROOT}/system" "${STEVEDORE_HOST_ROOT}/deployments"
   ensure_db_key
+  ensure_admin_key
 
   write_container_env
   build_image

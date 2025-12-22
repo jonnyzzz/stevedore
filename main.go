@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/jonnyzzz/stevedore/internal/stevedore"
 )
@@ -92,12 +91,25 @@ func runDaemon(instance *stevedore.Instance) {
 		os.Exit(1)
 	}
 
+	// Ensure admin key exists
+	if err := instance.EnsureAdminKey(); err != nil {
+		log.Printf("ERROR: %v", err)
+		os.Exit(1)
+	}
+
 	db, err := instance.OpenDB()
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		os.Exit(1)
 	}
-	_ = db.Close()
+	defer func() { _ = db.Close() }()
+
+	// Get admin key for HTTP API
+	adminKey, err := instance.GetAdminKey()
+	if err != nil {
+		log.Printf("ERROR: %v", err)
+		os.Exit(1)
+	}
 
 	printUpstreamWarning()
 
@@ -106,17 +118,18 @@ func runDaemon(instance *stevedore.Instance) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
+	daemon := stevedore.NewDaemon(instance, db, stevedore.DaemonConfig{
+		AdminKey:   adminKey,
+		ListenAddr: getEnvDefault("STEVEDORE_LISTEN_ADDR", ":42107"),
+		Version:    buildInfoSummary(),
+	})
 
-	for {
-		select {
-		case <-ctx.Done():
-			log.Printf("Stevedore daemon stopping")
-			return
-		case <-ticker.C:
-		}
+	if err := daemon.Run(ctx); err != nil && err != context.Canceled {
+		log.Printf("ERROR: daemon exited: %v", err)
+		os.Exit(1)
 	}
+
+	log.Printf("Stevedore daemon stopped")
 }
 
 func runDoctor(instance *stevedore.Instance) error {

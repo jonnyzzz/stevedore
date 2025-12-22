@@ -26,7 +26,7 @@ The implementation follows a versioned milestone approach:
 |---------|------|--------|-------------|
 | v0-1 | Installation | ✅ Done | Raspberry Pi installation via git clone + install script |
 | v0-2 | Deployments | ✅ Done | Full deployment lifecycle with Git checkout and Compose |
-| v0-3 | Daemon Loop | 🚧 Next | Automated polling, HTTP API, self-update |
+| v0-3 | Daemon Loop | ✅ Done | Automated polling, HTTP API, self-update |
 | v2-0 | Web Monitoring | ⏸️ Postponed | HTTP dashboard with React UI |
 
 ---
@@ -113,43 +113,49 @@ Full deployment lifecycle support:
 
 ---
 
-## v0-3 — Daemon Loop (Next)
+## v0-3 — Daemon Loop
 
-**Status: 🚧 Next up**
+**Status: ✅ Complete**
 
 Automated polling and HTTP API:
 
-1. **Daemon polling loop**
-   - `stevedore -d` runs a continuous loop
+1. **Daemon polling loop** (`internal/stevedore/daemon.go`)
+   - `stevedore -d` runs a continuous loop with HTTP server
    - Polls registered deployments at configurable intervals (default: 5 minutes)
-   - On change detected: sync → build → deploy
-   - Persist last-seen revision and sync status in DB
+   - On change detected: sync → deploy automatically
+   - Persists last-seen revision and sync status in DB (`sync_status` table)
+   - Parallel sync support with per-deployment tracking
 
-2. **HTTP API** (port `42107`)
-   - `/healthz` — unauthenticated health probe for systemd
-   - `/api/status` — deployment status (admin-authenticated)
-   - `/api/sync/<deployment>` — manual sync trigger
-   - `/api/deploy/<deployment>` — manual deploy trigger
-   - Admin key generated at install time, stored in `system/`
+2. **HTTP API** (port `42107`) (`internal/stevedore/server.go`)
+   - `GET /healthz` — unauthenticated health probe for systemd
+   - `GET /api/status` — list all deployments (admin-authenticated)
+   - `GET /api/status/{name}` — deployment details (admin-authenticated)
+   - `POST /api/sync/{name}` — trigger manual sync (admin-authenticated)
+   - `POST /api/deploy/{name}` — trigger manual deploy (admin-authenticated)
+   - Admin key generated at install time, stored in `system/admin.key`
+   - Bearer token authentication: `Authorization: Bearer <admin-key>`
 
-3. **Self-update workflow**
+3. **Self-update workflow** (`internal/stevedore/self_update.go`)
    - Detect changes in the `stevedore` deployment
-   - Build new Stevedore image
+   - Build new Stevedore image from checkout
    - Spawn update worker container to replace running Stevedore
-   - Ensure workload containers are NOT stopped during update
+   - Workload containers are NOT stopped during update
 
-4. **Database migrations**
-   - Migration system implemented (`internal/stevedore/db_migrations.go`)
-   - Track sync status, last commit, timestamps in DB
+4. **Database migrations** (v2, v3)
+   - `sync_status` table: tracks last_commit, last_sync_at, last_deploy_at, last_error
+   - `repositories.poll_interval_seconds`: per-deployment poll interval
+   - `repositories.enabled`: enable/disable polling
 
-### v0-3 Implementation Plan
+### Implementation Files
 
-- [ ] Add daemon loop to `stevedore -d`
-- [ ] Implement HTTP server with health endpoint
-- [ ] Add admin authentication for API
-- [ ] Implement self-update via worker container
-- [ ] Add configurable poll intervals per deployment
-- [ ] Integration tests for daemon loop
+| File | Description |
+|------|-------------|
+| `internal/stevedore/daemon.go` | Daemon loop and polling logic |
+| `internal/stevedore/server.go` | HTTP API server |
+| `internal/stevedore/admin_key.go` | Admin key management |
+| `internal/stevedore/sync_status.go` | Sync status DB operations |
+| `internal/stevedore/self_update.go` | Self-update workflow |
+| `internal/stevedore/db_migrations.go` | Migrations 2 & 3 |
 
 ---
 

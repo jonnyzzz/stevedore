@@ -56,6 +56,7 @@ Database migrations:
 
 Current CLI commands:
 
+- `stevedore -d` — Run daemon (polling loop + HTTP API)
 - `stevedore doctor` — Health check
 - `stevedore version` — Show version info
 - `stevedore repo add <name> <url> --branch <branch>` — Add deployment with SSH key
@@ -66,6 +67,16 @@ Current CLI commands:
 - `stevedore deploy up <name>` — Deploy via docker compose
 - `stevedore deploy down <name>` — Stop deployment
 - `stevedore status [name]` — Show deployment/container status
+
+HTTP API (port 42107):
+
+- `GET /healthz` — Unauthenticated health probe
+- `GET /api/status` — List deployments (admin auth)
+- `GET /api/status/{name}` — Deployment details (admin auth)
+- `POST /api/sync/{name}` — Trigger sync (admin auth)
+- `POST /api/deploy/{name}` — Trigger deploy (admin auth)
+- Authentication: `Authorization: Bearer <admin.key>`
+- See `docs/API.md` for full reference
 
 Worker containers:
 

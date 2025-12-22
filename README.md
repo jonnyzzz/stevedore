@@ -77,10 +77,10 @@ Community (implemented):
 - **Upstream main warning** — Warns if installed from `jonnyzzz/stevedore` `main`
 - **Build metadata** — `VERSION` + git info embedded into the binary/image
 
-Community (next — v0-3):
+Community (implemented — v0-3):
 
 - **Daemon polling loop** — Automated Git sync and deployment on changes
-- **HTTP API** — Health endpoint and admin-authenticated triggers on port `42107`
+- **HTTP API** — Health endpoint (`/healthz`) and admin API on port `42107`
 - **Self-update** — Stevedore updates itself via worker container
 
 PRO (planned, documentation only for now):
