@@ -1,9 +1,6 @@
 package integration_test
 
 import (
-	"bytes"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,13 +88,13 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 		t.Fatalf("unexpected parameter value: %q", value)
 	}
 
-	dbPath := filepath.Join(donor.StateDir, "system", "stevedore.db")
-	header, err := readFileHeader(dbPath, 16)
-	if err != nil {
-		t.Fatalf("read db header: %v", err)
-	}
-	if bytes.Equal(header, []byte("SQLite format 3\x00")) {
-		t.Fatalf("database file looks unencrypted (SQLite header detected): %s", dbPath)
+	// Check that the database file is encrypted by reading its header via docker exec
+	// (the file is owned by root so we can't read it directly from the host)
+	dbContainerPath := "/opt/stevedore/system/stevedore.db"
+	dbHeaderHex := strings.TrimSpace(donor.ExecOK("docker", "exec", donor.StevedoreContainerName, "sh", "-c", "head -c 16 "+dbContainerPath+" | xxd -p"))
+	sqliteHeaderHex := "53514c69746520666f726d6174203300" // "SQLite format 3\x00" in hex
+	if dbHeaderHex == sqliteHeaderHex {
+		t.Fatalf("database file looks unencrypted (SQLite header detected)")
 	}
 
 	wrongKeyRes, err := donor.Exec("docker", "exec", "-e", "STEVEDORE_DB_KEY=wrong", donor.StevedoreContainerName, "/app/stevedore", "param", "get", "demo", "DEMO_KEY")
@@ -110,18 +107,4 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 	if err != nil || res.ExitCode != 0 {
 		t.Fatalf("legacy parameter file exists (should not): %s", legacyParamFile)
 	}
-}
-
-func readFileHeader(path string, n int) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(f, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
 }
