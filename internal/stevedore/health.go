@@ -20,6 +20,11 @@ const (
 	HealthNone      ContainerHealth = "none" // No health check configured
 )
 
+// IsHealthy returns true if the container health indicates a healthy state.
+func (h ContainerHealth) IsHealthy() bool {
+	return h == HealthHealthy || h == HealthNone || h == HealthStarting
+}
+
 // ContainerState represents the state of a container.
 type ContainerState string
 
@@ -31,6 +36,16 @@ const (
 	StatePaused     ContainerState = "paused"
 	StateDead       ContainerState = "dead"
 )
+
+// IsRunning returns true if the container is in a running or starting state.
+func (s ContainerState) IsRunning() bool {
+	return s == StateRunning || s == StateRestarting || s == StateCreated
+}
+
+// IsStopped returns true if the container is in a stopped state.
+func (s ContainerState) IsStopped() bool {
+	return s == StateExited || s == StatePaused || s == StateDead
+}
 
 // ContainerStatus holds status information for a container.
 type ContainerStatus struct {

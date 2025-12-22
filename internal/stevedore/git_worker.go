@@ -37,9 +37,20 @@ type GitCloneResult struct {
 	Branch string
 }
 
-// GitSync performs a git clone or pull operation for a deployment using a worker container.
-// It clones if the repo doesn't exist, or fetches and checks out if it does.
-func (i *Instance) GitSync(ctx context.Context, deployment string, config GitWorkerConfig) (*GitCloneResult, error) {
+// gitRepoSetup holds the resolved paths and metadata for a git operation.
+type gitRepoSetup struct {
+	deploymentDir  string
+	repoDir        string
+	gitDir         string
+	sshDir         string
+	privateKeyPath string
+	repoURL        string
+	branch         string
+	isClone        bool
+}
+
+// prepareGitRepo validates and prepares paths for a git operation.
+func (i *Instance) prepareGitRepo(deployment string) (*gitRepoSetup, error) {
 	if err := ValidateDeploymentName(deployment); err != nil {
 		return nil, err
 	}
@@ -79,6 +90,26 @@ func (i *Instance) GitSync(ctx context.Context, deployment string, config GitWor
 		isClone = false
 	}
 
+	return &gitRepoSetup{
+		deploymentDir:  deploymentDir,
+		repoDir:        repoDir,
+		gitDir:         gitDir,
+		sshDir:         sshDir,
+		privateKeyPath: privateKeyPath,
+		repoURL:        repoURL,
+		branch:         branch,
+		isClone:        isClone,
+	}, nil
+}
+
+// GitSync performs a git clone or pull operation for a deployment using a worker container.
+// It clones if the repo doesn't exist, or fetches and checks out if it does.
+func (i *Instance) GitSync(ctx context.Context, deployment string, config GitWorkerConfig) (*GitCloneResult, error) {
+	setup, err := i.prepareGitRepo(deployment)
+	if err != nil {
+		return nil, err
+	}
+
 	if config.Timeout == 0 {
 		config.Timeout = DefaultGitWorkerConfig().Timeout
 	}
@@ -86,42 +117,42 @@ func (i *Instance) GitSync(ctx context.Context, deployment string, config GitWor
 	ctx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
 
-	if isClone {
+	if setup.isClone {
 		// Clone the repository
 		if err := i.runGitWorker(ctx, deployment, config, []string{
 			"clone",
-			"--branch", branch,
+			"--branch", setup.branch,
 			"--depth", "1",
 			"--single-branch",
-			repoURL,
+			setup.repoURL,
 			".",
-		}, gitDir); err != nil {
+		}, setup.gitDir); err != nil {
 			return nil, fmt.Errorf("git clone failed: %w", err)
 		}
 	} else {
 		// Fetch and checkout
 		if err := i.runGitWorker(ctx, deployment, config, []string{
-			"fetch", "--depth", "1", "origin", branch,
-		}, gitDir); err != nil {
+			"fetch", "--depth", "1", "origin", setup.branch,
+		}, setup.gitDir); err != nil {
 			return nil, fmt.Errorf("git fetch failed: %w", err)
 		}
 
 		if err := i.runGitWorker(ctx, deployment, config, []string{
 			"checkout", "-f", "FETCH_HEAD",
-		}, gitDir); err != nil {
+		}, setup.gitDir); err != nil {
 			return nil, fmt.Errorf("git checkout failed: %w", err)
 		}
 	}
 
 	// Get the current commit SHA
-	commit, err := i.getGitCommit(ctx, deployment, config, gitDir)
+	commit, err := i.getGitCommit(ctx, deployment, config, setup.gitDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit: %w", err)
 	}
 
 	return &GitCloneResult{
 		Commit: commit,
-		Branch: branch,
+		Branch: setup.branch,
 	}, nil
 }
 
@@ -212,54 +243,20 @@ func (i *Instance) getGitCommit(ctx context.Context, deployment string, config G
 // GitCloneLocal performs a git clone using the local git binary (no worker container).
 // This is useful for environments where docker-in-docker is not available.
 func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCloneResult, error) {
-	if err := ValidateDeploymentName(deployment); err != nil {
+	setup, err := i.prepareGitRepo(deployment)
+	if err != nil {
 		return nil, err
 	}
 
-	deploymentDir := i.DeploymentDir(deployment)
-	repoDir := filepath.Join(deploymentDir, "repo")
-	gitDir := filepath.Join(repoDir, "git")
-	sshDir := filepath.Join(repoDir, "ssh")
-
-	// Read repository URL and branch
-	urlBytes, err := os.ReadFile(filepath.Join(repoDir, "url.txt"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read repository URL: %w", err)
-	}
-	repoURL := strings.TrimSpace(string(urlBytes))
-
-	branchBytes, err := os.ReadFile(filepath.Join(repoDir, "branch.txt"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read branch: %w", err)
-	}
-	branch := strings.TrimSpace(string(branchBytes))
-
-	// Check if SSH key exists
-	privateKeyPath := filepath.Join(sshDir, "id_ed25519")
-	if _, err := os.Stat(privateKeyPath); err != nil {
-		return nil, fmt.Errorf("SSH key not found: %w", err)
-	}
-
-	// Ensure git directory exists
-	if err := os.MkdirAll(gitDir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create git directory: %w", err)
-	}
-
 	// Set up SSH command environment
-	sshCommand := fmt.Sprintf("ssh -o StrictHostKeyChecking=accept-new -i %s", privateKeyPath)
-
-	// Determine if we need to clone or fetch
-	isClone := true
-	if _, err := os.Stat(filepath.Join(gitDir, ".git")); err == nil {
-		isClone = false
-	}
+	sshCommand := fmt.Sprintf("ssh -o StrictHostKeyChecking=accept-new -i %s", setup.privateKeyPath)
 
 	var cmd *exec.Cmd
-	if isClone {
-		cmd = exec.CommandContext(ctx, "git", "clone", "--branch", branch, "--depth", "1", "--single-branch", repoURL, gitDir)
+	if setup.isClone {
+		cmd = exec.CommandContext(ctx, "git", "clone", "--branch", setup.branch, "--depth", "1", "--single-branch", setup.repoURL, setup.gitDir)
 	} else {
 		// First fetch
-		fetchCmd := exec.CommandContext(ctx, "git", "-C", gitDir, "fetch", "--depth", "1", "origin", branch)
+		fetchCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
 		fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
 		var fetchStderr bytes.Buffer
 		fetchCmd.Stderr = &fetchStderr
@@ -268,7 +265,7 @@ func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCl
 		}
 
 		// Then checkout
-		cmd = exec.CommandContext(ctx, "git", "-C", gitDir, "checkout", "-f", "FETCH_HEAD")
+		cmd = exec.CommandContext(ctx, "git", "-C", setup.gitDir, "checkout", "-f", "FETCH_HEAD")
 	}
 
 	cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
@@ -280,7 +277,7 @@ func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCl
 	}
 
 	// Get commit SHA
-	commitCmd := exec.CommandContext(ctx, "git", "-C", gitDir, "rev-parse", "HEAD")
+	commitCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
 	commitOut, err := commitCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit: %w", err)
@@ -288,6 +285,6 @@ func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCl
 
 	return &GitCloneResult{
 		Commit: strings.TrimSpace(string(commitOut)),
-		Branch: branch,
+		Branch: setup.branch,
 	}, nil
 }

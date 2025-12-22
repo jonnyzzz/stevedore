@@ -124,7 +124,7 @@ func runDaemon(instance *stevedore.Instance) {
 		Version:    buildInfoSummary(),
 	})
 
-	if err := daemon.Run(ctx); err != nil && err != context.Canceled {
+	if err := daemon.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("ERROR: daemon exited: %v", err)
 		os.Exit(1)
 	}

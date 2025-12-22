@@ -58,7 +58,7 @@ func NewDaemon(instance *Instance, db *sql.DB, config DaemonConfig) *Daemon {
 	return d
 }
 
-// Run starts the daemon and blocks until context is cancelled.
+// Run starts the daemon and blocks until context is canceled.
 func (d *Daemon) Run(ctx context.Context) error {
 	// Start HTTP server
 	if err := d.server.Start(); err != nil {

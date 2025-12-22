@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -65,7 +66,7 @@ func NewServer(instance *Instance, db *sql.DB, config ServerConfig, version stri
 func (s *Server) Start() error {
 	go func() {
 		log.Printf("HTTP server listening on %s", s.config.ListenAddr)
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("HTTP server error: %v", err)
 		}
 	}()
