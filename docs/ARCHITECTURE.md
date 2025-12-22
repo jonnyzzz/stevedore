@@ -27,11 +27,11 @@ forward-looking; not everything here is implemented yet.
 - Mounts:
   - `/opt/stevedore` (host state) → `/opt/stevedore` (container)
   - Docker socket → `/var/run/docker.sock`
-- Planned: HTTP server on `0.0.0.0:42107`
+- HTTP server on `0.0.0.0:42107` (implemented in v0-3):
   - `/healthz` (unauthenticated): used by systemd health monitoring.
-  - `/api/*` (admin-authenticated): status, manual triggers, onboarding.
-  - Admin key generated at install time and stored under `system/` (see `docs/STATE_LAYOUT.md`).
-- Planned: simple web UI (React) served by the same daemon for status + admin operations.
+  - `/api/*` (admin-authenticated): status, manual triggers.
+  - Admin key generated at install time and stored under `system/admin.key` (see `docs/STATE_LAYOUT.md`).
+- Planned: simple web UI (React) served by the same daemon for status + admin operations (v2-0).
 
 ### Worker containers
 
@@ -48,8 +48,10 @@ container when feasible.
   - Currently runs compose from within Stevedore container
   - Future: isolate compose operations in dedicated worker
 
-- **Update worker** (planned): update Stevedore itself by stopping/replacing the running Stevedore container
-  (self-update without the control-plane container killing itself).
+- **Update worker** (implemented in v0-3): update Stevedore itself by stopping/replacing the running Stevedore container.
+  - See `internal/stevedore/self_update.go`
+  - Spawns a container to stop old and start new Stevedore
+  - Workloads are not stopped during the update
 
 All workers operate via the host Docker socket and the mounted state directory.
 
@@ -66,42 +68,42 @@ Manual deployment cycle via CLI:
 3. `stevedore status <name>` — Check container health status
 4. `stevedore deploy down <name>` — Stop deployment
 
-### Planned (v0-3)
+### Implemented (v0-3)
 
 Automated polling cycle:
 
 1. Poll remote repository for changes at configured intervals (git worker).
 2. Detect changes by comparing HEAD with last-seen revision.
-3. On change: sync → build → deploy automatically.
+3. On change: sync → deploy automatically.
 4. Validate basic health checks.
-5. Persist status + last seen revision in SQLite DB.
+5. Persist status + last seen revision in SQLite DB (`sync_status` table).
+6. HTTP API for manual triggers and status queries (port 42107).
 
-## Self-Update (planned)
+## Self-Update (implemented in v0-3)
 
 Self-update is special because Stevedore cannot reliably replace itself from inside the container
 that is being replaced.
 
-Proposed flow:
+Implementation (`internal/stevedore/self_update.go`):
 
-1. Detect Stevedore repo update.
-2. Build the new Stevedore image (worker).
+1. Detect Stevedore repo update via polling.
+2. Build the new Stevedore image from the checkout.
 3. Start an **update worker** container that:
    - Stops the current `stevedore` container
    - Starts a new `stevedore` container from the new image
-4. Ensure workloads (deployment containers) are not stopped; only the Stevedore control-plane is replaced.
+4. Workloads (deployment containers) are not stopped; only the Stevedore control-plane is replaced.
 
-## Health + Restart Semantics (planned)
+## Health + Restart Semantics
 
-Requirements:
+Current state (v0-3):
 
-- systemd must restart Stevedore on crashes.
-- systemd should also restart Stevedore if the container becomes **unhealthy**.
+- HTTP health endpoint implemented: `GET :42107/healthz` returns `{"status":"ok","version":"..."}`
+- systemd restarts Stevedore on crashes.
+- Container-level health checks (Docker `HEALTHCHECK`) can call the endpoint.
 
-Proposed approach:
+Remaining work:
 
-- Add an HTTP health endpoint (`:42107/healthz`) in the daemon.
-- Add container-level health checks (Docker `HEALTHCHECK`) that call that endpoint (via `curl`).
-- Ensure `curl` is available in the container image to support health probes.
+- Add container-level `HEALTHCHECK` in Dockerfile that calls `/healthz` (via `curl` or `wget`).
 - Add a systemd monitor (or companion mechanism) that restarts the container when health turns
   `unhealthy` (Docker does not restart unhealthy containers by itself).
 

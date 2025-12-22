@@ -53,6 +53,15 @@ Database migrations:
 - Tests in `internal/stevedore/db_test.go` verify migration correctness and schema integrity.
 - `TestMigrations_VersionsAreSequential` ensures migrations are properly numbered.
 - `TestMigrations_Idempotent` ensures migrations can run multiple times safely.
+- Current migrations: v1 (base schema), v2 (sync_status table), v3 (poll_interval, enabled flag).
+
+Sync status tracking:
+
+- Daemon tracks sync/deploy status in `sync_status` table.
+- Fields: last_commit, last_sync_at, last_deploy_at, last_error, last_error_at.
+- Per-deployment poll intervals via `repositories.poll_interval_seconds` (default: 300s).
+- Deployments can be disabled via `repositories.enabled` flag.
+- See `internal/stevedore/sync_status.go` for implementation.
 
 Current CLI commands:
 
@@ -83,6 +92,20 @@ Worker containers:
 - Git operations run in isolated `alpine/git` containers for security.
 - Worker containers are labeled with `com.stevedore.managed=true` and `com.stevedore.role=git-worker`.
 - See `internal/stevedore/git_worker.go` for implementation.
+
+Self-update:
+
+- Stevedore can update itself when the `stevedore` deployment detects new commits.
+- Self-update spawns an update worker container to stop/start the control-plane.
+- Workload containers are NOT stopped during self-update.
+- See `internal/stevedore/self_update.go` for implementation.
+
+Admin key:
+
+- Admin key is generated during installation and stored at `system/admin.key`.
+- Used for HTTP API authentication (`Authorization: Bearer <key>`).
+- Can be overridden via `STEVEDORE_ADMIN_KEY` env var.
+- See `internal/stevedore/admin_key.go` for implementation.
 
 Health monitoring:
 

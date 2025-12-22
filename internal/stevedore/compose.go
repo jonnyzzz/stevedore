@@ -96,14 +96,18 @@ func (i *Instance) Deploy(ctx context.Context, deployment string, config Compose
 
 	projectName := ComposeProjectName(deployment)
 
-	// Ensure data and logs directories exist
+	// Ensure data, logs, and shared directories exist
 	dataDir := filepath.Join(deploymentDir, "data")
 	logsDir := filepath.Join(deploymentDir, "logs")
+	sharedDir := filepath.Join(i.Root, "shared")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 	if err := os.MkdirAll(logsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create logs directory: %w", err)
+	}
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create shared directory: %w", err)
 	}
 
 	// Run docker compose up
@@ -121,6 +125,7 @@ func (i *Instance) Deploy(ctx context.Context, deployment string, config Compose
 		"STEVEDORE_DEPLOYMENT="+deployment,
 		"STEVEDORE_DATA="+dataDir,
 		"STEVEDORE_LOGS="+logsDir,
+		"STEVEDORE_SHARED="+sharedDir,
 	)
 
 	var stdout, stderr bytes.Buffer
