@@ -46,7 +46,7 @@ func (i *Instance) OpenDB() (*sql.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	if err := i.ensureSchema(db); err != nil {
+	if err := migrateDB(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -119,31 +119,8 @@ func (i *Instance) configureDB(db *sql.DB) error {
 	return nil
 }
 
-func (i *Instance) ensureSchema(db *sql.DB) error {
-	for _, stmt := range []string{
-		`CREATE TABLE IF NOT EXISTS deployments (
-			name TEXT PRIMARY KEY,
-			created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
-		);`,
-		`CREATE TABLE IF NOT EXISTS repositories (
-			deployment TEXT PRIMARY KEY,
-			url TEXT NOT NULL,
-			branch TEXT NOT NULL,
-			updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
-			FOREIGN KEY (deployment) REFERENCES deployments(name) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS parameters (
-			deployment TEXT NOT NULL,
-			name TEXT NOT NULL,
-			value BLOB NOT NULL,
-			updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
-			PRIMARY KEY (deployment, name),
-			FOREIGN KEY (deployment) REFERENCES deployments(name) ON DELETE CASCADE
-		);`,
-	} {
-		if _, err := db.Exec(stmt); err != nil {
-			return err
-		}
-	}
-	return nil
+// EnsureDeploymentRow inserts a deployment row if it doesn't exist.
+func EnsureDeploymentRow(db *sql.DB, deployment string) error {
+	_, err := db.Exec(`INSERT INTO deployments (name) VALUES (?) ON CONFLICT(name) DO NOTHING;`, deployment)
+	return err
 }

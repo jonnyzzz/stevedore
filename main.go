@@ -158,7 +158,19 @@ func runRepo(instance *stevedore.Instance, args []string) error {
 		}
 
 		_, _ = fmt.Printf("Repository registered: %s\n", deployment)
-		_, _ = fmt.Printf("Add this public key as a read-only Deploy Key:\n\n%s\n", publicKey)
+		_, _ = fmt.Printf("\nAdd this public key as a read-only Deploy Key:\n\n%s\n\n", publicKey)
+
+		// Show GitHub deploy key URL if it's a GitHub repository
+		if deployKeyURL := githubDeployKeyURL(url); deployKeyURL != "" {
+			_, _ = fmt.Printf("GitHub Deploy Keys URL:\n  %s\n\n", deployKeyURL)
+			_, _ = fmt.Printf("Steps:\n")
+			_, _ = fmt.Printf("  1. Open the URL above in your browser\n")
+			_, _ = fmt.Printf("  2. Click 'Add deploy key'\n")
+			_, _ = fmt.Printf("  3. Title: stevedore-%s\n", deployment)
+			_, _ = fmt.Printf("  4. Paste the public key above\n")
+			_, _ = fmt.Printf("  5. Leave 'Allow write access' unchecked (read-only)\n")
+			_, _ = fmt.Printf("  6. Click 'Add key'\n")
+		}
 		return nil
 
 	case "key":
@@ -343,4 +355,47 @@ func shortCommit(hash string) string {
 		return hash[:12]
 	}
 	return hash
+}
+
+// githubDeployKeyURL extracts the GitHub repository path from various URL formats
+// and returns the deploy keys settings URL, or empty string if not a GitHub URL.
+func githubDeployKeyURL(repoURL string) string {
+	repoURL = strings.TrimSpace(repoURL)
+
+	var owner, repo string
+
+	switch {
+	case strings.HasPrefix(repoURL, "git@github.com:"):
+		// git@github.com:owner/repo.git
+		path := strings.TrimPrefix(repoURL, "git@github.com:")
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 2 {
+			owner, repo = parts[0], parts[1]
+		}
+
+	case strings.HasPrefix(repoURL, "ssh://git@github.com/"):
+		// ssh://git@github.com/owner/repo.git
+		path := strings.TrimPrefix(repoURL, "ssh://git@github.com/")
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 2 {
+			owner, repo = parts[0], parts[1]
+		}
+
+	case strings.HasPrefix(repoURL, "https://github.com/"):
+		// https://github.com/owner/repo.git or https://github.com/owner/repo
+		path := strings.TrimPrefix(repoURL, "https://github.com/")
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 2 {
+			owner, repo = parts[0], parts[1]
+		}
+	}
+
+	if owner == "" || repo == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("https://github.com/%s/%s/settings/keys", owner, repo)
 }

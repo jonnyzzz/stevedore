@@ -7,7 +7,7 @@ See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
 
 ## Guiding Principles
 
-- Minimal host dependencies (close to “Docker-only” on Ubuntu / Raspberry Pi OS).
+- Minimal host dependencies (close to "Docker-only" on Ubuntu / Raspberry Pi OS).
 - State is a directory tree on disk (easy backups, easy audits, easy recovery).
 - Clear console logs and deterministic behavior.
 - Prefer simple, well-tested flows over complex rollback logic at this stage.
@@ -17,6 +17,102 @@ See `docs/ARCHITECTURE.md` for the longer-form design notes and open questions.
 
 - **Stevedore instance**: one Stevedore installation on a host.
 - **Deployment** (deployment unit): one Git repository managed by Stevedore.
+
+## Version Milestones
+
+The implementation follows a versioned milestone approach:
+
+| Version | Name | Status | Description |
+|---------|------|--------|-------------|
+| v0-1 | Installation | ✅ Done | Raspberry Pi installation via git clone + install script |
+| v0-2 | Deployments | 🚧 In Progress | Full deployment lifecycle with Git checkout and Compose |
+| v2-0 | Web Monitoring | ⏸️ Postponed | HTTP dashboard with React UI |
+
+---
+
+## v0-1 — Installation (Raspberry Pi)
+
+**Status: ✅ Complete**
+
+The installation workflow for Raspberry Pi and similar hosts:
+
+1. **Clone the Git repository** (required — installer asserts this)
+   ```bash
+   git clone <your-fork-url> stevedore
+   cd stevedore
+   ```
+2. **Run the install script**
+   ```bash
+   ./stevedore-install.sh
+   ```
+
+The installer performs:
+- Asserts running from a Git checkout (Dockerfile and `.git` must exist)
+- Installs Docker if missing (Ubuntu/Raspberry Pi OS)
+- Creates state directories (`/opt/stevedore/system`, `/opt/stevedore/deployments`)
+- Generates database encryption key (`system/db.key`)
+- Builds the Stevedore Docker image locally
+- Registers as a systemd service (preferred) or uses Docker restart policy
+- Installs host wrappers (`stevedore`, `stevedore.sh`) to PATH
+- Bootstraps self-deployment for future self-updates
+
+---
+
+## v0-2 — Deployments
+
+**Status: 🚧 In Progress**
+
+Full deployment lifecycle support:
+
+1. **Add a Git repository**
+   ```bash
+   stevedore repo add my-app git@github.com:user/my-app.git --branch main
+   ```
+   - Generates an Ed25519 SSH deploy key for the repository
+   - Stores the key in the deployment layout (`deployments/<name>/repo/ssh/`)
+   - Displays the public key and GitHub deploy key URL (for GitHub repos)
+   - User registers the key, then continues
+
+2. **Git checkout** (worker container)
+   - Spawns a dedicated Docker container for Git operations (isolation)
+   - Clones/fetches the repository using the generated SSH key
+   - Stores checkout under `deployments/<name>/repo/git/`
+
+3. **Compose discovery and deployment**
+   - Searches for entrypoint files (in order):
+     - `docker-compose.yaml`, `docker-compose.yml`
+     - `compose.yaml`, `compose.yml`
+     - `stevedore.yaml` (legacy)
+   - Runs `docker compose up -d` with deployment-specific project name
+   - Monitors container health
+
+4. **Health monitoring**
+   - Watches deployed containers for health status
+   - Reports deployment state via `stevedore status`
+
+### v0-2 Integration Tests
+
+- Docker container running SSH server (gitserver) for testing
+- Full workflow: add repo → checkout → deploy → verify health
+- Cleanup of test containers
+
+---
+
+## v2-0 — Web Monitoring (Postponed)
+
+**Status: ⏸️ Postponed for later**
+
+React-based web dashboard:
+
+- HTTP server listening on `0.0.0.0:39851`
+- Access token authentication (stored in cookies after first entry)
+- Dashboard showing:
+  - Current deployments and their status
+  - Container health information
+  - Deployment logs
+- Styling similar to devrig.dev
+
+---
 
 ## Milestone 0 — Bootstrap (what we implement first)
 

@@ -41,3 +41,6 @@ __pycache__/
 # Local build/test caches
 .gocache/
 .tmp/
+
+# Generated DB for IDE tooling (run: go test -run TestGenerateDBForTooling -v ./internal/stevedore/)
+.db/

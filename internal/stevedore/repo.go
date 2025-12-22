@@ -72,7 +72,7 @@ func (i *Instance) AddRepo(deployment string, spec RepoSpec) (string, error) {
 	}
 	defer func() { _ = db.Close() }()
 
-	if err := ensureDeploymentRow(db, deployment); err != nil {
+	if err := EnsureDeploymentRow(db, deployment); err != nil {
 		return "", err
 	}
 	if _, err := db.Exec(

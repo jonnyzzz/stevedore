@@ -31,7 +31,7 @@ func (i *Instance) SetParameter(deployment string, name string, value []byte) er
 	}
 	defer func() { _ = db.Close() }()
 
-	if err := ensureDeploymentRow(db, deployment); err != nil {
+	if err := EnsureDeploymentRow(db, deployment); err != nil {
 		return err
 	}
 
@@ -119,7 +119,3 @@ func (i *Instance) ListParameters(deployment string) ([]string, error) {
 	return names, nil
 }
 
-func ensureDeploymentRow(db *sql.DB, deployment string) error {
-	_, err := db.Exec(`INSERT INTO deployments (name) VALUES (?) ON CONFLICT(name) DO NOTHING;`, deployment)
-	return err
-}

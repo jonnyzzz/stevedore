@@ -237,11 +237,30 @@ main() {
   [ "$(uname -s)" = "Linux" ] || die "This installer supports Linux only."
   [ -f "Dockerfile" ] || die "Dockerfile not found in script directory: $script_dir"
 
+  # Assert: must be running from a git checkout (v0-1 requirement)
+  [ -d ".git" ] || die "Not a git repository. Stevedore must be installed from a git clone.
+
+To install Stevedore:
+  1. Fork or clone the repository:
+     git clone https://github.com/jonnyzzz/stevedore.git
+     (or your own fork)
+  2. Run the installer from within the cloned directory:
+     cd stevedore
+     ./stevedore-install.sh"
+
   git_repo=""
   git_branch=""
   if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git_repo="$(git remote get-url origin 2>/dev/null || true)"
     git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  fi
+
+  # Validate git info was detected
+  if [ -z "${git_repo}" ]; then
+    log "WARNING: Could not detect git remote URL. Self-deployment bootstrap may not work correctly."
+  fi
+  if [ -z "${git_branch}" ] || [ "${git_branch}" = "HEAD" ]; then
+    log "WARNING: Could not detect git branch. Self-deployment bootstrap may not work correctly."
   fi
 
   if is_upstream_repo_main "$git_repo" "$git_branch"; then

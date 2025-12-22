@@ -36,12 +36,23 @@ Project specifics:
 - Runtime model (for now): mount the host Docker socket into the Stevedore container. DinD is postponed to later versions.
 - Installer should prefer a systemd unit (`stevedore.service`) to keep the container running across reboots (fall back to a Docker restart policy if systemd is unavailable).
 - Persist state in the SQLCipher-encrypted SQLite DB (`system/stevedore.db`); avoid plaintext secret files (installer generates `system/db.key`).
+- Database schema is managed via versioned migrations in `internal/stevedore/db_migrations.go`.
 - Repositories use Compose as the entrypoint (`docker-compose.yaml` preferred; fall back to other common names).
 - Repository onboarding uses SSH deploy keys (read-only); later we can harden key handling.
 - v4 (planned): store SSH private keys encrypted in SQLite and forward them via an SSH agent (no private key files on disk).
 - The container service runs the daemon via `stevedore -d`.
 - Prefer POSIX `sh` for host scripts; target Ubuntu and Raspberry Pi OS.
 - Add integration tests that run Stevedore in Docker; keep them runnable in GitHub Actions.
+
+Database migrations:
+
+- All schema changes are defined as versioned migrations in `internal/stevedore/db_migrations.go`.
+- Never modify existing migrations - always add new ones with incrementing version numbers.
+- The `schema_migrations` table tracks which migrations have been applied.
+- Migrations are applied automatically when `OpenDB()` is called.
+- Tests in `internal/stevedore/db_test.go` verify migration correctness and schema integrity.
+- `TestMigrations_VersionsAreSequential` ensures migrations are properly numbered.
+- `TestMigrations_Idempotent` ensures migrations can run multiple times safely.
 
 Integration tests (current state):
 
