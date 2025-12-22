@@ -127,7 +127,8 @@ func scanLines(r io.Reader, handle func(string)) {
 	for scanner.Scan() {
 		handle(scanner.Text())
 	}
-	if err := scanner.Err(); err != nil {
+	// Don't report EOF or "file already closed" errors - these are expected when the process finishes
+	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "file already closed") {
 		handle(fmt.Sprintf("scanner error: %v", err))
 	}
 }
