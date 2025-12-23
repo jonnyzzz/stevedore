@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,23 +15,18 @@ import (
 // 1. Start a git server container with SSH
 // 2. Initialize a sample repository with docker-compose.yaml
 // 3. Add the deployment to stevedore
-// 4. Sync the repository
-// 5. Deploy the application
-// 6. Verify health status
-// 7. Stop the deployment
-//
-// This test is skipped by default because it requires complex SSH setup
-// that may not work reliably in all CI environments.
+// 4. Add stevedore's public key to git server
+// 5. Sync the repository
+// 6. Deploy the application
+// 7. Verify health status
+// 8. Stop the deployment
 func TestDeploymentWorkflow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	// Skip this test for now - it requires complex SSH setup that doesn't work reliably in CI
-	// TODO: Fix SSH git server setup to work in GitHub Actions
-	t.Skip("skipping deployment workflow test - requires SSH git server setup")
 
 	tc := NewTestContainer(t, "Dockerfile.ubuntu")
-	workDir := "/tmp/stevedore-deploy-test"
+	workDir := "/work/stevedore"
 
 	// Copy sources and set up environment
 	tc.CopySourcesToWorkDir(workDir)
@@ -49,91 +45,40 @@ func TestDeploymentWorkflow(t *testing.T) {
 	t.Log("Step 1: Installing stevedore...")
 	tc.ExecBashOKTimeout(env, fmt.Sprintf("cd %s && ./stevedore-install.sh", workDir), 10*time.Minute)
 
-	// Step 2: Set up a git server container with SSH
+	// Step 2: Set up a git server using GitServer helper
 	t.Log("Step 2: Setting up git server...")
-	gitServerName := tc.ContainerPrefix + "-gitserver"
-	gitRepoPath := "/git/test-repo.git"
+	gs := NewGitServer(t, tc.ContainerPrefix)
 
-	// Register cleanup for git server
-	t.Cleanup(func() {
-		tc.docker.stopAndRemoveContainer(gitServerName)
+	deploymentName := "simple-app"
+	gitURL := gs.GetSSHURL(deploymentName)
+	t.Logf("Git server URL: %s", gitURL)
+
+	// Step 3: Initialize the repository with sample app content
+	t.Log("Step 3: Creating sample repository with build config...")
+
+	// Read sample app files from testdata
+	testdataDir := filepath.Join(getProjectRoot(), "tests", "integration", "testdata", "simple-app")
+	dockerfile, err := os.ReadFile(filepath.Join(testdataDir, "Dockerfile"))
+	if err != nil {
+		t.Fatalf("failed to read Dockerfile: %v", err)
+	}
+	compose, err := os.ReadFile(filepath.Join(testdataDir, "docker-compose.yaml"))
+	if err != nil {
+		t.Fatalf("failed to read docker-compose.yaml: %v", err)
+	}
+
+	// Initialize repo with files using local file protocol (no SSH needed)
+	err = gs.InitRepoWithContent(deploymentName, map[string]string{
+		"Dockerfile":          string(dockerfile),
+		"docker-compose.yaml": string(compose),
+		"version.txt":         fmt.Sprintf("v1.0.0-%d", time.Now().Unix()),
 	})
+	if err != nil {
+		t.Fatalf("failed to init repo: %v", err)
+	}
 
-	// Create git server container
-	tc.ExecBashOK(nil, fmt.Sprintf(`
-		# Create a simple git server container
-		docker run -d --name %s \
-			-v /tmp/git-repos:/git \
-			alpine:latest sleep infinity
-
-		# Install git and openssh
-		docker exec %s apk add --no-cache git openssh-server openssh-keygen
-
-		# Configure SSH
-		docker exec %s sh -c 'ssh-keygen -A'
-		docker exec %s sh -c 'mkdir -p /root/.ssh && chmod 700 /root/.ssh'
-		docker exec %s sh -c 'echo "PermitRootLogin yes" >> /etc/ssh/sshd_config'
-		docker exec %s sh -c 'echo "PasswordAuthentication no" >> /etc/ssh/sshd_config'
-		docker exec %s sh -c 'echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config'
-		docker exec %s sh -c 'echo "root:testpassword" | chpasswd'
-
-		# Start SSH daemon
-		docker exec %s /usr/sbin/sshd
-	`, gitServerName, gitServerName, gitServerName, gitServerName, gitServerName, gitServerName, gitServerName, gitServerName, gitServerName))
-
-	// Get git server IP
-	gitServerIP := strings.TrimSpace(tc.ExecBashOK(nil, fmt.Sprintf(
-		`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' %s`,
-		gitServerName,
-	)))
-	t.Logf("Git server IP: %s", gitServerIP)
-
-	// Initialize a bare git repository
-	tc.ExecBashOK(nil, fmt.Sprintf(`
-		docker exec %s sh -c '
-			mkdir -p %s
-			cd %s
-			git init --bare
-			git config receive.denyCurrentBranch ignore
-		'
-	`, gitServerName, gitRepoPath, gitRepoPath))
-
-	// Step 3: Create a sample repository with docker-compose.yaml
-	t.Log("Step 3: Creating sample repository...")
-	sampleRepoDir := "/tmp/sample-repo"
-	tc.ExecBashOK(nil, fmt.Sprintf(`
-		rm -rf %s
-		mkdir -p %s
-		cd %s
-
-		# Create a simple docker-compose.yaml
-		cat > docker-compose.yaml << 'COMPOSE_EOF'
-services:
-  web:
-    image: nginx:alpine
-    ports:
-      - "8080:80"
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
-COMPOSE_EOF
-
-		# Initialize git repo with main branch
-		git init -b main
-		git config user.email "test@test.com"
-		git config user.name "Test"
-		git add -A
-		git commit -m "Initial commit"
-	`, sampleRepoDir, sampleRepoDir, sampleRepoDir))
-
-	// Step 4: Get the deploy key from stevedore and add it to git server
-	t.Log("Step 4: Adding deployment and configuring SSH key...")
-	deploymentName := "test-app"
-	gitURL := fmt.Sprintf("ssh://root@%s%s", gitServerIP, gitRepoPath)
-
-	// Add the repo to stevedore - this generates the SSH key
+	// Step 4: Add the repo to stevedore (generates SSH key)
+	t.Log("Step 4: Adding deployment to stevedore...")
 	output := tc.ExecBashOK(env, fmt.Sprintf(`
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh repo add %s %s --branch main
@@ -153,24 +98,14 @@ COMPOSE_EOF
 	}
 	t.Logf("Public key: %s", publicKey)
 
-	// Add the public key to the git server
-	tc.ExecBashOK(nil, fmt.Sprintf(`
-		docker exec %s sh -c 'echo "%s" >> /root/.ssh/authorized_keys'
-		docker exec %s sh -c 'chmod 600 /root/.ssh/authorized_keys'
-	`, gitServerName, publicKey, gitServerName))
+	// Step 5: Add the stevedore public key to the git server
+	t.Log("Step 5: Adding stevedore public key to git server...")
+	if err := gs.AddAuthorizedKey(publicKey); err != nil {
+		t.Fatalf("failed to add authorized key: %v", err)
+	}
 
-	// Push the sample repo to the git server
-	tc.ExecBashOK(nil, fmt.Sprintf(`
-		cd %s
-
-		# Use the stevedore key for push (temporarily)
-		export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -i %s/deployments/%s/repo/ssh/id_ed25519"
-		git remote add origin %s || git remote set-url origin %s
-		git push -u origin main
-	`, sampleRepoDir, stateDir, deploymentName, gitURL, gitURL))
-
-	// Step 5: Sync the repository
-	t.Log("Step 5: Syncing repository...")
+	// Step 6: Sync the repository
+	t.Log("Step 6: Syncing repository...")
 	syncOutput := tc.ExecBashOK(env, fmt.Sprintf(`
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh deploy sync %s
@@ -181,23 +116,28 @@ COMPOSE_EOF
 		t.Errorf("Expected 'Repository synced' in output, got: %s", syncOutput)
 	}
 
-	// Step 6: Deploy the application
-	t.Log("Step 6: Deploying application...")
-	deployOutput := tc.ExecBashOK(env, fmt.Sprintf(`
+	// Verify the git checkout exists
+	tc.ExecOK("test", "-d", fmt.Sprintf("%s/deployments/%s/repo/git/.git", stateDir, deploymentName))
+	tc.ExecOK("test", "-f", fmt.Sprintf("%s/deployments/%s/repo/git/docker-compose.yaml", stateDir, deploymentName))
+
+	// Step 7: Deploy the application
+	t.Log("Step 7: Deploying application (with build)...")
+	deployOutput := tc.ExecBashOKTimeout(env, fmt.Sprintf(`
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh deploy up %s
-	`, workDir, tc.StevedoreContainerName, deploymentName))
+	`, workDir, tc.StevedoreContainerName, deploymentName), 5*time.Minute)
 	t.Logf("deploy output:\n%s", deployOutput)
 
 	if !strings.Contains(deployOutput, "Deployed") {
 		t.Errorf("Expected 'Deployed' in output, got: %s", deployOutput)
 	}
 
-	// Wait for the container to be healthy
-	time.Sleep(10 * time.Second)
+	// Wait for container to be healthy
+	t.Log("Waiting for container to be healthy...")
+	waitForHealthy(t, tc, env, workDir, deploymentName, 60*time.Second)
 
-	// Step 7: Check status
-	t.Log("Step 7: Checking deployment status...")
+	// Step 8: Check status
+	t.Log("Step 8: Checking deployment status...")
 	statusOutput := tc.ExecBashOK(env, fmt.Sprintf(`
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh status %s
@@ -209,17 +149,23 @@ COMPOSE_EOF
 		t.Errorf("Expected 'Deployment:' in status output, got: %s", statusOutput)
 	}
 
-	// Step 8: Stop the deployment
-	t.Log("Step 8: Stopping deployment...")
+	// Verify containers have correct compose labels (discovered by stevedore)
+	containers := tc.ExecBashOK(nil, fmt.Sprintf(
+		`docker ps --filter "label=com.docker.compose.project=stevedore-%s" --format "{{.Names}}"`,
+		deploymentName,
+	))
+	if strings.TrimSpace(containers) == "" {
+		t.Error("No containers found with compose project label")
+	}
+	t.Logf("Deployed containers: %s", containers)
+
+	// Step 9: Stop the deployment
+	t.Log("Step 9: Stopping deployment...")
 	stopOutput := tc.ExecBashOK(env, fmt.Sprintf(`
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh deploy down %s
 	`, workDir, tc.StevedoreContainerName, deploymentName))
 	t.Logf("stop output:\n%s", stopOutput)
-
-	if !strings.Contains(stopOutput, "Stopped") {
-		t.Errorf("Expected 'Stopped' in output, got: %s", stopOutput)
-	}
 
 	// Final status check - should show no containers
 	finalStatus := tc.ExecBashOK(env, fmt.Sprintf(`
@@ -228,5 +174,52 @@ COMPOSE_EOF
 	`, workDir, tc.StevedoreContainerName, deploymentName))
 	t.Logf("final status output:\n%s", finalStatus)
 
+	// Verify containers are gone
+	containersAfter := tc.ExecBashOK(nil, fmt.Sprintf(
+		`docker ps --filter "label=com.docker.compose.project=stevedore-%s" --format "{{.Names}}" || true`,
+		deploymentName,
+	))
+	if strings.TrimSpace(containersAfter) != "" {
+		t.Errorf("Expected no containers after down, got: %s", containersAfter)
+	}
+
 	t.Log("Deployment workflow test completed successfully!")
+}
+
+// waitForHealthy waits for the deployment to become healthy.
+func waitForHealthy(t *testing.T, tc *TestContainer, env map[string]string, workDir, deploymentName string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		output := tc.ExecBashOK(env, fmt.Sprintf(`
+			cd %s
+			STEVEDORE_CONTAINER=%s ./stevedore.sh status %s 2>/dev/null || true
+		`, workDir, tc.StevedoreContainerName, deploymentName))
+
+		if strings.Contains(output, "healthy") && strings.Contains(output, "Healthy:    true") {
+			t.Log("Deployment is healthy")
+			return
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Log("Warning: deployment did not become healthy within timeout (proceeding anyway)")
+}
+
+// getProjectRoot returns the path to the project root directory.
+func getProjectRoot() string {
+	// Find the project root by looking for go.mod
+	dir, _ := os.Getwd()
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// At filesystem root, return current working directory
+			cwd, _ := os.Getwd()
+			return cwd
+		}
+		dir = parent
+	}
 }

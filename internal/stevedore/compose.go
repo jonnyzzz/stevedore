@@ -111,11 +111,13 @@ func (i *Instance) Deploy(ctx context.Context, deployment string, config Compose
 	}
 
 	// Run docker compose up
+	// --build ensures images are rebuilt when Dockerfile changes
 	args := []string{
 		"compose",
 		"-f", composePath,
 		"-p", projectName,
 		"up", "-d",
+		"--build",
 		"--remove-orphans",
 	}
 

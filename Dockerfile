@@ -40,7 +40,8 @@ RUN set -eu; \
 		-o stevedore .
 
 # Runtime stage - Using Alpine Linux (small distro base)
-FROM alpine:3.19
+# Alpine 3.21 provides docker-cli with API >= 1.44 required by modern Docker daemons
+FROM alpine:3.21
 
 WORKDIR /app
 

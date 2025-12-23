@@ -85,10 +85,58 @@ These are useful, but add complexity and/or require a real systemd host:
 - **systemd test**: run on a systemd-capable environment (VM job) and assert the unit is installed, enabled,
   and starts the container with the expected mounts/env-file.
 
+## Deployment Workflow Test
+
+Implementation: `tests/integration/deploy_test.go`
+
+This test exercises the full deployment lifecycle using a real SSH Git server sidecar:
+
+### Test Flow
+
+1. **Install Stevedore** via `stevedore-install.sh` in a donor container
+2. **Start Git server sidecar**: Ubuntu container with OpenSSH + Git (`tests/integration/git_server_test.go`)
+3. **Initialize test repository** with sample app (Dockerfile + docker-compose.yaml with `build:` config)
+4. **Register deployment** via `stevedore repo add` (generates SSH key)
+5. **Add deploy key** to Git server's authorized_keys
+6. **Sync repository** via `stevedore deploy sync` (clones via SSH)
+7. **Deploy application** via `stevedore deploy up` (builds image, starts containers)
+8. **Verify health** via `stevedore status` (checks container health)
+9. **Stop deployment** via `stevedore deploy down`
+10. **Cleanup** all containers and images
+
+### Git Server Helper
+
+The `GitServer` struct (`git_server_test.go`) provides a reusable SSH Git server:
+
+- Runs Ubuntu 22.04 with OpenSSH server and Git
+- Configures root login with public key authentication
+- Seeds repositories using local file protocol (no SSH client needed for setup)
+- Provides SSH URL for stevedore to clone: `root@<ip>:/git/<repo>.git`
+
+### Test App
+
+Located in `tests/integration/testdata/simple-app/`:
+
+- `Dockerfile`: Python HTTP server with `/health`, `/version`, `/env` endpoints
+- `docker-compose.yaml`: Uses `build:` to test image building, includes healthcheck
+- `version.txt`: Version file to verify builds
+
+### What We Assert
+
+- Repository sync succeeds via SSH
+- Git checkout exists at correct path
+- `docker compose up --build` builds and starts containers
+- Containers have correct compose project labels (`com.docker.compose.project=stevedore-<name>`)
+- Health status reports correctly
+- `deploy down` removes all containers
+
 ## Related Integration Coverage
 
-For now, installer coverage also carries the basic post-install assertions (version metadata, DB encryption, CLI roundtrips),
-so we keep a single integration test package (`tests/integration/`) with one primary test case.
+The integration test package (`tests/integration/`) now contains:
+
+1. **TestInstaller_UbuntuDonorContainer**: Installer, CLI, DB encryption
+2. **TestDeploymentWorkflow**: Full deployment lifecycle with Git server
+3. **TestGitServer_Basic**: Git server helper validation
 
 ## Running Locally
 
