@@ -37,8 +37,8 @@ Stevedore looks for `docker-compose.yaml` in your repo. It respects standard fea
 
 We also inject some magic environment variables like `${STEVEDORE_DATA}`. This maps to a persistent volume on the host, so your app doesn't lose data when it redeploys.
 
-## Go + Docker SDK
+## Go + Docker CLI (for now)
 
-The code is written in Go. It's robust, statically typed, and has excellent libraries. We use the official Docker SDK to talk to the Docker daemon. This means Stevedore isn't just shelling out to `docker` CLI commands (mostly). We speak the API.
+The code is written in Go. It's robust, statically typed, and has excellent libraries. For now Stevedore shells out to the Docker CLI (`docker`, `docker compose`) instead of using the Docker SDK directly. It's simple and predictable across hosts. If we need tighter control later, we can move to the SDK.
 
 Check out `internal/stevedore/git_worker.go` to see how we manage the ephemeral containers. It's a fun read if you're into system programming!

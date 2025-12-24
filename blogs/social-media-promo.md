@@ -24,7 +24,7 @@ It handles build failures, secrets (encrypted on disk), and even updates itself.
 Why not just a cron job?
 - Atomic updates (don't kill the app if the build fails)
 - Secret management (SQLCipher built-in)
-- Isolated Git operations
+- Git operations with per-repo deploy keys
 - It's actually observable (`stevedore status`)
 
 **Post 4:**
@@ -66,7 +66,7 @@ It's a lightweight, self-managing container orchestration system designed specif
 
 ✅ **Boring tech:** It uses standard Docker Compose.
 ✅ **Secure:** Secrets are encrypted at rest using SQLCipher.
-✅ **Self-healing:** It runs as a systemd service and restarts your apps if they crash.
+✅ **Self-healing:** The control plane runs as a systemd service; workload restarts follow your Compose restart policy.
 ✅ **Zero-config CI:** Your `git push` is the trigger.
 
 It follows a "Fork First" philosophy. You fork the repo, and that fork becomes your control plane. It puts you in complete control of your infrastructure updates.

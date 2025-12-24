@@ -22,7 +22,7 @@ Stevedore is a lightweight, self-managing container orchestration system. It run
 It's designed to be:
 *   **Boring:** It uses Docker Compose. If you know Docker, you know Stevedore.
 *   **Secure-ish:** It generates SSH deploy keys for your repos. Secrets are encrypted on disk.
-*   **Self-healing:** It runs as a systemd service and restarts your containers if they fail.
+*   **Self-healing:** The control plane runs as a systemd service; workload restarts follow your Compose restart policy.
 
 ## Why not just a cron job?
 
