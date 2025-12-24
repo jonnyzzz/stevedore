@@ -227,23 +227,28 @@ func (g *GitServer) InitRepoFromContainer(srcContainer *TestContainer, srcPath, 
 
 	// Transfer files from source container to git server using tar pipe through host
 	// Exclude .git directory to avoid conflicts with the new git repo we'll create
-	// Step 1: Create tarball from source container (excluding .git)
-	tarCmd := fmt.Sprintf("docker exec %s tar -C %s --exclude=.git --exclude=.tmp -cf - .", srcContainer.GetContainerName(), srcPath)
-
-	// Step 2: Extract tarball into git server
-	extractCmd := fmt.Sprintf("docker exec -i %s tar -C %s -xf -", g.container.GetContainerName(), workRepoPath)
+	// Use pipefail to catch errors in any part of the pipeline
+	g.t.Logf("Transferring files from %s:%s to git server repo %s", srcContainer.GetContainerName(), srcPath, repoName)
 
 	// Run the pipe: tar from source | extract to destination
-	pipeCmd := fmt.Sprintf("%s | %s", tarCmd, extractCmd)
+	// Using bash with pipefail to catch errors in the pipeline
+	pipeCmd := fmt.Sprintf("set -o pipefail; docker exec %s tar -C %s --exclude=.git --exclude=.tmp -cf - . | docker exec -i %s tar -C %s -xvf -",
+		srcContainer.GetContainerName(), srcPath, g.container.GetContainerName(), workRepoPath)
 
 	// Execute on host (the test runner has access to docker)
-	g.t.Logf("Transferring files from %s:%s to git server repo %s", srcContainer.GetContainerName(), srcPath, repoName)
-	if _, err := srcContainer.r.Exec(srcContainer.ctx, ExecSpec{
-		Cmd:    "sh",
+	res, err := srcContainer.r.Exec(srcContainer.ctx, ExecSpec{
+		Cmd:    "bash",
 		Args:   []string{"-c", pipeCmd},
 		Prefix: "[tar-pipe]",
-	}); err != nil {
-		return fmt.Errorf("failed to transfer files: %w", err)
+	})
+	if err != nil || res.ExitCode != 0 {
+		return fmt.Errorf("failed to transfer files: exit=%d err=%w output=%s", res.ExitCode, err, res.Output)
+	}
+
+	// Verify files were transferred
+	verifyRes := g.container.ExecOK("ls", "-la", workRepoPath)
+	if strings.Contains(verifyRes, "total 0") || !strings.Contains(verifyRes, "Dockerfile") {
+		return fmt.Errorf("file transfer appears to have failed, directory listing: %s", verifyRes)
 	}
 
 	// Initialize git repo and commit
