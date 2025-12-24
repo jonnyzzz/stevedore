@@ -27,11 +27,16 @@ type TestContainer struct {
 	// ImageTag is the tag of the built donor container image.
 	ImageTag string
 
-	// StateDir is a temporary directory on the host mounted into the container.
-	StateDir string
+	// StateHostPath is the absolute path to the state directory on the host machine.
+	// This directory is created during test setup and removed during cleanup.
+	StateHostPath string
 
-	// RepoRoot is the absolute path to the repository root directory.
-	RepoRoot string
+	// StateContainerPath is the path where StateHostPath is mounted inside the container.
+	// On Unix systems this typically equals StateHostPath; on Windows it may differ.
+	StateContainerPath string
+
+	// StevedoreRepoRoot is the absolute path to the stevedore repository root directory.
+	StevedoreRepoRoot string
 
 	// ContainerPrefix is the unique prefix used for this test run.
 	ContainerPrefix string
@@ -45,12 +50,25 @@ type TestContainer struct {
 
 // ContainerOptions configures how a test container is created.
 type ContainerOptions struct {
+	// Dockerfile is the name of the Dockerfile in tests/integration/testdata directory.
+	// Example: "Dockerfile.ubuntu", "Dockerfile.gitserver"
+	Dockerfile string
+
 	// MountDockerSocket mounts /var/run/docker.sock into the container.
 	MountDockerSocket bool
-	// MountRepoRoot mounts the repository root as /tmp/stevedore-src:ro.
-	MountRepoRoot bool
-	// CreateStateDir creates a state directory and mounts it.
-	CreateStateDir bool
+
+	// MountStevedoreRepoRoot mounts the stevedore repository root as /tmp/stevedore-src:ro.
+	MountStevedoreRepoRoot bool
+
+	// StateHostPath is the absolute path on the host for the state directory.
+	// If empty but StateContainerPath is set, a temporary directory is created under .tmp/.
+	// The directory is created automatically and cleaned up after the test.
+	StateHostPath string
+
+	// StateContainerPath is the path inside the container where the state directory is mounted.
+	// If empty, no state directory is mounted.
+	// On Unix, this is typically the same as StateHostPath for Docker volume mounts to work.
+	StateContainerPath string
 }
 
 // NewTestContainer creates a new test container from the specified Dockerfile.
@@ -61,17 +79,24 @@ type ContainerOptions struct {
 // Example: NewTestContainer(t, "Dockerfile.ubuntu")
 func NewTestContainer(t testing.TB, dockerfile string) *TestContainer {
 	t.Helper()
-	return NewTestContainerWithOptions(t, dockerfile, ContainerOptions{
-		MountDockerSocket: true,
-		MountRepoRoot:     true,
-		CreateStateDir:    true,
+	repoRoot := StevedoreRepoRoot(t)
+	return NewTestContainerWithOptions(t, ContainerOptions{
+		Dockerfile:             dockerfile,
+		MountDockerSocket:      true,
+		MountStevedoreRepoRoot: true,
+		// StateContainerPath triggers auto-creation of state directory
+		StateContainerPath: filepath.Join(repoRoot, ".tmp", "state-placeholder"),
 	})
 }
 
 // NewTestContainerWithOptions creates a new test container with configurable options.
 // Use this for containers that don't need the full donor container setup (e.g., sidecars).
-func NewTestContainerWithOptions(t testing.TB, dockerfile string, opts ContainerOptions) *TestContainer {
+func NewTestContainerWithOptions(t testing.TB, opts ContainerOptions) *TestContainer {
 	t.Helper()
+
+	if opts.Dockerfile == "" {
+		t.Fatal("ContainerOptions.Dockerfile is required")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	t.Cleanup(cancel)
@@ -85,27 +110,38 @@ func NewTestContainerWithOptions(t testing.TB, dockerfile string, opts Container
 
 	// Sanitize dockerfile name for use in Docker image/container names
 	// Docker requires lowercase names and dots have special meaning
-	dockerfileID := sanitizeDockerName(dockerfile)
+	dockerfileID := sanitizeDockerName(opts.Dockerfile)
 	prefix := "stevedore-it-" + dockerfileID
 	runID := fmt.Sprintf("%d", time.Now().UnixNano())
 	containerPrefix := prefix + "-" + runID
 	containerName := containerPrefix + "-container"
 	imageTag := prefix + ":" + runID
 
-	repoRoot := RepoRoot(t)
-	dockerfilePath := filepath.Join(repoRoot, "tests", "integration", "testdata", dockerfile)
+	repoRoot := StevedoreRepoRoot(t)
+	dockerfilePath := filepath.Join(repoRoot, "tests", "integration", "testdata", opts.Dockerfile)
 
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 		t.Fatalf("Dockerfile not found: %s", dockerfilePath)
 	}
 
-	var stateDir string
-	if opts.CreateStateDir {
-		stateDir = filepath.Join(repoRoot, ".tmp", prefix+"-"+runID)
-		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+	// Handle state directory setup
+	var stateHostPath, stateContainerPath string
+	if opts.StateContainerPath != "" {
+		stateContainerPath = opts.StateContainerPath
+		if opts.StateHostPath != "" {
+			stateHostPath = opts.StateHostPath
+		} else {
+			// Auto-create state directory under .tmp/
+			stateHostPath = filepath.Join(repoRoot, ".tmp", prefix+"-"+runID)
+		}
+		// Use same path for container on Unix (required for Docker volume mounts)
+		if stateContainerPath == filepath.Join(repoRoot, ".tmp", "state-placeholder") {
+			stateContainerPath = stateHostPath
+		}
+		if err := os.MkdirAll(stateHostPath, 0o755); err != nil {
 			t.Fatalf("mkdir state dir: %v", err)
 		}
-		t.Cleanup(func() { _ = os.RemoveAll(stateDir) })
+		t.Cleanup(func() { _ = os.RemoveAll(stateHostPath) })
 	}
 
 	stevedoreContainerName := containerPrefix + "-stevedore"
@@ -133,11 +169,11 @@ func NewTestContainerWithOptions(t testing.TB, dockerfile string, opts Container
 	if opts.MountDockerSocket {
 		runArgs = append(runArgs, "-v", "/var/run/docker.sock:/var/run/docker.sock")
 	}
-	if opts.MountRepoRoot {
+	if opts.MountStevedoreRepoRoot {
 		runArgs = append(runArgs, "-v", repoRoot+":/tmp/stevedore-src:ro")
 	}
-	if opts.CreateStateDir && stateDir != "" {
-		runArgs = append(runArgs, "-v", stateDir+":"+stateDir)
+	if stateHostPath != "" && stateContainerPath != "" {
+		runArgs = append(runArgs, "-v", stateHostPath+":"+stateContainerPath)
 	}
 	runArgs = append(runArgs, imageTag)
 
@@ -153,8 +189,9 @@ func NewTestContainerWithOptions(t testing.TB, dockerfile string, opts Container
 		containerID:            containerID,
 		docker:                 docker,
 		ImageTag:               imageTag,
-		StateDir:               stateDir,
-		RepoRoot:               repoRoot,
+		StateHostPath:          stateHostPath,
+		StateContainerPath:     stateContainerPath,
+		StevedoreRepoRoot:      repoRoot,
 		ContainerPrefix:        containerPrefix,
 		StevedoreContainerName: stevedoreContainerName,
 		StevedoreImageTag:      stevedoreImageTag,
@@ -372,8 +409,10 @@ func (d *dockerCLI) removeContainersByPrefix(prefix string) {
 	}
 }
 
-// RepoRoot returns the absolute path to the repository root.
-func RepoRoot(t testing.TB) string {
+// StevedoreRepoRoot returns the absolute path to the stevedore repository root.
+// It validates that the directory is indeed the stevedore repo by checking for
+// required files: .git/config, README.md, and stevedore-install.sh.
+func StevedoreRepoRoot(t testing.TB) string {
 	t.Helper()
 
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -386,6 +425,20 @@ func RepoRoot(t testing.TB) string {
 	if err != nil {
 		t.Fatalf("abs repo root: %v", err)
 	}
+
+	// Validate this is the stevedore repository by checking for required files
+	requiredFiles := []string{
+		".git/config",
+		"README.md",
+		"stevedore-install.sh",
+	}
+	for _, file := range requiredFiles {
+		path := filepath.Join(abs, file)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Fatalf("stevedore repo root validation failed: %s not found in %s", file, abs)
+		}
+	}
+
 	return abs
 }
 

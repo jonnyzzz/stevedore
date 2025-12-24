@@ -1,16 +1,13 @@
 package integration_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 // TestGitServer_Basic tests that the GitServer helper works correctly.
 func TestGitServer_Basic(t *testing.T) {
-	prefix := fmt.Sprintf("stevedore-it-gitserver-%d", time.Now().UnixNano())
-	gs := NewGitServer(t, prefix)
+	gs := NewGitServer(t)
 
 	// Verify IP address is set
 	if gs.GetIPAddress() == "" {
@@ -29,7 +26,7 @@ func TestGitServer_Basic(t *testing.T) {
 	}
 
 	// Verify the SSH URL format
-	sshURL := gs.GetSSHURL("test-repo")
+	sshURL := gs.GetSshUrl("test-repo")
 	if !strings.Contains(sshURL, "root@") {
 		t.Errorf("expected SSH URL to contain root@, got: %s", sshURL)
 	}
@@ -42,8 +39,7 @@ func TestGitServer_Basic(t *testing.T) {
 
 // TestGitServer_MultipleRepos tests creating multiple repositories.
 func TestGitServer_MultipleRepos(t *testing.T) {
-	prefix := fmt.Sprintf("stevedore-it-gitserver-%d", time.Now().UnixNano())
-	gs := NewGitServer(t, prefix)
+	gs := NewGitServer(t)
 
 	// Create first repo
 	if err := gs.InitRepoWithContent("repo1", map[string]string{
@@ -60,8 +56,8 @@ func TestGitServer_MultipleRepos(t *testing.T) {
 	}
 
 	// Verify both URLs are different
-	url1 := gs.GetSSHURL("repo1")
-	url2 := gs.GetSSHURL("repo2")
+	url1 := gs.GetSshUrl("repo1")
+	url2 := gs.GetSshUrl("repo2")
 	if url1 == url2 {
 		t.Errorf("expected different URLs for different repos, got same: %s", url1)
 	}
@@ -69,16 +65,15 @@ func TestGitServer_MultipleRepos(t *testing.T) {
 
 // TestGitServer_SubdirectoryFiles tests creating files in subdirectories.
 func TestGitServer_SubdirectoryFiles(t *testing.T) {
-	prefix := fmt.Sprintf("stevedore-it-gitserver-%d", time.Now().UnixNano())
-	gs := NewGitServer(t, prefix)
+	gs := NewGitServer(t)
 
 	// Create repo with files in subdirectories
 	if err := gs.InitRepoWithContent("nested-repo", map[string]string{
-		"README.md":           "# Root file\n",
-		"src/main.go":         "package main\n",
-		"src/pkg/helper.go":   "package pkg\n",
-		"docker/Dockerfile":   "FROM alpine\n",
-		"config/app.yaml":     "key: value\n",
+		"README.md":          "# Root file\n",
+		"src/main.go":        "package main\n",
+		"src/pkg/helper.go":  "package pkg\n",
+		"docker/Dockerfile":  "FROM alpine\n",
+		"config/app.yaml":    "key: value\n",
 	}); err != nil {
 		t.Fatalf("failed to init repo with subdirectories: %v", err)
 	}
@@ -88,8 +83,7 @@ func TestGitServer_SubdirectoryFiles(t *testing.T) {
 
 // TestGitServer_SpecialCharacters tests files with special characters.
 func TestGitServer_SpecialCharacters(t *testing.T) {
-	prefix := fmt.Sprintf("stevedore-it-gitserver-%d", time.Now().UnixNano())
-	gs := NewGitServer(t, prefix)
+	gs := NewGitServer(t)
 
 	// Create repo with special characters in content
 	if err := gs.InitRepoWithContent("special-repo", map[string]string{
@@ -110,8 +104,7 @@ func TestGitServer_SpecialCharacters(t *testing.T) {
 
 // TestGitServer_AuthorizedKey tests adding authorized keys.
 func TestGitServer_AuthorizedKey(t *testing.T) {
-	prefix := fmt.Sprintf("stevedore-it-gitserver-%d", time.Now().UnixNano())
-	gs := NewGitServer(t, prefix)
+	gs := NewGitServer(t)
 
 	// Add a sample public key
 	sampleKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyDataHere test@example.com"
@@ -124,8 +117,7 @@ func TestGitServer_AuthorizedKey(t *testing.T) {
 
 // TestGitServer_HostKeyFingerprint tests getting the host key fingerprint.
 func TestGitServer_HostKeyFingerprint(t *testing.T) {
-	prefix := fmt.Sprintf("stevedore-it-gitserver-%d", time.Now().UnixNano())
-	gs := NewGitServer(t, prefix)
+	gs := NewGitServer(t)
 
 	fingerprint := gs.GetHostKeyFingerprint()
 	if fingerprint == "" {

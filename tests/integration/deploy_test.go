@@ -29,7 +29,7 @@ func TestDeploymentWorkflow(t *testing.T) {
 	// Copy sources and set up environment
 	tc.CopySourcesToWorkDir(workDir)
 
-	stateDir := filepath.Join(tc.StateDir, "stevedore-state")
+	stateDir := filepath.Join(tc.StateHostPath, "stevedore-state")
 	env := map[string]string{
 		"STEVEDORE_HOST_ROOT":           stateDir,
 		"STEVEDORE_CONTAINER_NAME":      tc.StevedoreContainerName,
@@ -45,10 +45,10 @@ func TestDeploymentWorkflow(t *testing.T) {
 
 	// Step 2: Set up a git server using GitServer helper
 	t.Log("Step 2: Setting up git server...")
-	gs := NewGitServer(t, tc.ContainerPrefix)
+	gs := NewGitServer(t)
 
 	deploymentName := "simple-app"
-	gitURL := gs.GetSSHURL(deploymentName)
+	gitURL := gs.GetSshUrl(deploymentName)
 	t.Logf("Git server URL: %s", gitURL)
 
 	// Step 3: Initialize the repository with sample app content

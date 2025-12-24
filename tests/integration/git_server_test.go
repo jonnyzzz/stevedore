@@ -19,13 +19,13 @@ type GitServer struct {
 
 // NewGitServer creates and starts a new Git server sidecar container.
 // The server is built from Dockerfile.gitserver and configured with OpenSSH and git.
-func NewGitServer(t testing.TB, _ string) *GitServer {
+func NewGitServer(t testing.TB) *GitServer {
 	t.Helper()
 
-	container := NewTestContainerWithOptions(t, "Dockerfile.gitserver", ContainerOptions{
-		MountDockerSocket: false,
-		MountRepoRoot:     false,
-		CreateStateDir:    false,
+	container := NewTestContainerWithOptions(t, ContainerOptions{
+		Dockerfile:             "Dockerfile.gitserver",
+		MountDockerSocket:      false,
+		MountStevedoreRepoRoot: false,
 	})
 
 	g := &GitServer{
@@ -61,9 +61,9 @@ func (g *GitServer) waitForSSH() {
 	g.t.Fatal("timeout waiting for SSH server to be ready")
 }
 
-// GetSSHURL returns the SSH URL for accessing a repository on this server.
+// GetSshUrl returns the SSH URL for accessing a repository on this server.
 // Format: root@<ip>:/git/<repo>.git
-func (g *GitServer) GetSSHURL(repoName string) string {
+func (g *GitServer) GetSshUrl(repoName string) string {
 	return fmt.Sprintf("root@%s:/git/%s.git", g.ipAddress, repoName)
 }
 
@@ -143,10 +143,4 @@ func (g *GitServer) GetHostKeyFingerprint() string {
 
 	output := g.container.ExecOK("ssh-keygen", "-lf", "/etc/ssh/ssh_host_ed25519_key.pub")
 	return strings.TrimSpace(output)
-}
-
-// Cleanup removes the git server container and image.
-// Note: cleanup is handled automatically by TestContainer via t.Cleanup().
-func (g *GitServer) Cleanup() {
-	// TestContainer handles cleanup automatically
 }

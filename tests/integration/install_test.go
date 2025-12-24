@@ -19,13 +19,13 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 		"STEVEDORE_ASSUME_YES":          "1",
 		"STEVEDORE_BOOTSTRAP_SELF":      "0",
 		"STEVEDORE_CONTAINER_NAME":      donor.StevedoreContainerName,
-		"STEVEDORE_HOST_ROOT":           donor.StateDir,
+		"STEVEDORE_HOST_ROOT":           donor.StateHostPath,
 		"STEVEDORE_IMAGE":               donor.StevedoreImageTag,
 	}
 	donor.ExecBashOKTimeout(installEnv, "cd /work/stevedore && ./stevedore-install.sh", 20*time.Minute)
 
-	dbKeyPath := filepath.Join(donor.StateDir, "system", "db.key")
-	containerEnvPath := filepath.Join(donor.StateDir, "system", "container.env")
+	dbKeyPath := filepath.Join(donor.StateHostPath, "system", "db.key")
+	containerEnvPath := filepath.Join(donor.StateHostPath, "system", "container.env")
 	donor.ExecOK("test", "-s", dbKeyPath)
 	donor.ExecOK("test", "-f", containerEnvPath)
 
@@ -102,7 +102,7 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 		t.Fatalf("expected wrong DB key to fail, but command succeeded")
 	}
 
-	legacyParamFile := filepath.Join(donor.StateDir, "deployments", "demo", "parameters", "DEMO_KEY.txt")
+	legacyParamFile := filepath.Join(donor.StateHostPath, "deployments", "demo", "parameters", "DEMO_KEY.txt")
 	res, err := donor.Exec("test", "!", "-f", legacyParamFile)
 	if err != nil || res.ExitCode != 0 {
 		t.Fatalf("legacy parameter file exists (should not): %s", legacyParamFile)
