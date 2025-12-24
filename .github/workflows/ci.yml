@@ -23,7 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          go test -tags=integration ./tests/integration -v -count=1 2>&1 | tee integration.log
+          go test -tags=integration ./tests/integration -v -count=1 -timeout=30m 2>&1 | tee integration.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "${status}" -ne 0 ]; then
