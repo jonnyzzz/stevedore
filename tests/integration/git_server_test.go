@@ -77,7 +77,7 @@ func (g *GitServer) CreateBareRepo(name string) error {
 	g.t.Helper()
 
 	repoPath := fmt.Sprintf("/git/%s.git", name)
-	g.container.ExecOK("git", "init", "--bare", repoPath)
+	g.container.ExecOK("git", "init", "--bare", "--initial-branch=main", repoPath)
 	return nil
 }
 
@@ -109,7 +109,7 @@ func (g *GitServer) InitRepoWithContent(name string, files map[string]string) er
 
 	// Create a working directory and initialize git
 	g.container.ExecOK("mkdir", "-p", workRepoPath)
-	g.container.ExecOK("git", "-C", workRepoPath, "init")
+	g.container.ExecOK("git", "-C", workRepoPath, "init", "-b", "main")
 	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.email", "test@test.local")
 	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.name", "Test")
 
@@ -255,7 +255,7 @@ func (g *GitServer) InitRepoFromContainer(srcContainer *TestContainer, srcPath, 
 	g.container.ExecOK("chown", "-R", "root:root", workRepoPath)
 
 	// Initialize git repo and commit
-	g.container.ExecOK("git", "-C", workRepoPath, "init")
+	g.container.ExecOK("git", "-C", workRepoPath, "init", "-b", "main")
 	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.email", "test@test.local")
 	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.name", "Test")
 	g.container.ExecOK("git", "-C", workRepoPath, "add", ".")
