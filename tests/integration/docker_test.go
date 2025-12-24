@@ -70,7 +70,7 @@ func NewTestContainer(t testing.TB, dockerfile string) *TestContainer {
 	containerName := containerPrefix + "-donor"
 	imageTag := prefix + ":" + runID
 
-	repoRoot := testRepoRoot(t)
+	repoRoot := RepoRoot(t)
 	dockerfilePath := filepath.Join(repoRoot, "tests", "integration", "testdata", dockerfile)
 
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
@@ -334,8 +334,8 @@ func (d *dockerCLI) removeContainersByPrefix(prefix string) {
 	}
 }
 
-// testRepoRoot returns the absolute path to the repository root.
-func testRepoRoot(t testing.TB) string {
+// RepoRoot returns the absolute path to the repository root.
+func RepoRoot(t testing.TB) string {
 	t.Helper()
 
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -349,6 +349,21 @@ func testRepoRoot(t testing.TB) string {
 		t.Fatalf("abs repo root: %v", err)
 	}
 	return abs
+}
+
+// GetContainerIP returns the IP address of a container by ID or name.
+func GetContainerIP(t testing.TB, r *Runner, ctx context.Context, containerID string) string {
+	t.Helper()
+
+	res, err := r.Exec(ctx, ExecSpec{
+		Cmd:    "docker",
+		Args:   []string{"inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", containerID},
+		Prefix: "[docker]",
+	})
+	if err != nil || res.ExitCode != 0 {
+		return ""
+	}
+	return strings.TrimSpace(res.Output)
 }
 
 // sanitizeDockerName converts a dockerfile name to a valid Docker image/container name component.

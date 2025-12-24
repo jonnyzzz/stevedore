@@ -14,13 +14,14 @@ import (
 // repository that can be accessed via SSH.
 // Uses Dockerfile.gitserver from testdata directory.
 type GitServer struct {
-	t           testing.TB
-	prefix      string
-	containerID string
-	imageTag    string
-	ipAddress   string
-	docker      *dockerCLI
-	ctx         context.Context
+	t             testing.TB
+	prefix        string
+	containerID   string
+	containerName string
+	imageTag      string
+	ipAddress     string
+	r             *Runner
+	ctx           context.Context
 }
 
 // NewGitServer creates and starts a new Git server sidecar container.
@@ -30,29 +31,29 @@ func NewGitServer(t testing.TB, prefix string) *GitServer {
 
 	ctx := context.Background()
 	r := NewRunner(t)
-	docker := &dockerCLI{t: t, ctx: ctx, r: r}
 
 	containerName := prefix + "-gitserver"
 	imageTag := "stevedore-gitserver:" + fmt.Sprintf("%d", time.Now().UnixNano())
 
 	g := &GitServer{
-		t:        t,
-		prefix:   prefix,
-		docker:   docker,
-		ctx:      ctx,
-		imageTag: imageTag,
+		t:             t,
+		prefix:        prefix,
+		containerName: containerName,
+		imageTag:      imageTag,
+		r:             r,
+		ctx:           ctx,
 	}
 
 	// Clean up any existing container with same name
-	docker.stopAndRemoveContainer(containerName)
+	g.dockerRun("rm", "-f", containerName)
 
 	// Build the git server image
-	repoRoot := testRepoRoot(t)
+	repoRoot := RepoRoot(t)
 	dockerfilePath := filepath.Join(repoRoot, "tests", "integration", "testdata", "Dockerfile.gitserver")
-	docker.runOK("build", "-t", imageTag, "-f", dockerfilePath, filepath.Dir(dockerfilePath))
+	g.dockerRunOK("build", "-t", imageTag, "-f", dockerfilePath, filepath.Dir(dockerfilePath))
 
 	// Start the container
-	output := docker.runOK("run", "-d", "--name", containerName, imageTag)
+	output := g.dockerRunOK("run", "-d", "--name", containerName, imageTag)
 	g.containerID = strings.TrimSpace(output)
 
 	// Register cleanup
@@ -61,7 +62,7 @@ func NewGitServer(t testing.TB, prefix string) *GitServer {
 	})
 
 	// Get container IP address
-	g.ipAddress = g.getContainerIP()
+	g.ipAddress = GetContainerIP(t, r, ctx, g.containerID)
 	if g.ipAddress == "" {
 		t.Fatal("failed to get git server container IP address")
 	}
@@ -74,12 +75,32 @@ func NewGitServer(t testing.TB, prefix string) *GitServer {
 	return g
 }
 
+// dockerRun executes a docker command, ignoring errors.
+func (g *GitServer) dockerRun(args ...string) (ExecResult, error) {
+	g.t.Helper()
+	return g.r.Exec(g.ctx, ExecSpec{
+		Cmd:    "docker",
+		Args:   args,
+		Prefix: "[docker]",
+	})
+}
+
+// dockerRunOK executes a docker command and fails the test on error.
+func (g *GitServer) dockerRunOK(args ...string) string {
+	g.t.Helper()
+	res, err := g.dockerRun(args...)
+	if err != nil || res.ExitCode != 0 {
+		g.t.Fatalf("docker %s failed (exit=%d): %v", strings.Join(args, " "), res.ExitCode, err)
+	}
+	return res.Output
+}
+
 // execInContainer executes a command inside the git server container.
 func (g *GitServer) execInContainer(args ...string) string {
 	g.t.Helper()
 
 	dockerArgs := append([]string{"exec", g.containerID}, args...)
-	res, err := g.docker.r.Exec(g.ctx, ExecSpec{
+	res, err := g.r.Exec(g.ctx, ExecSpec{
 		Cmd:    "docker",
 		Args:   dockerArgs,
 		Prefix: "[gitserver]",
@@ -90,20 +111,12 @@ func (g *GitServer) execInContainer(args ...string) string {
 	return res.Output
 }
 
-// getContainerIP retrieves the IP address of the git server container.
-func (g *GitServer) getContainerIP() string {
-	g.t.Helper()
-
-	output := g.docker.runOK("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", g.containerID)
-	return strings.TrimSpace(output)
-}
-
 // waitForSSH waits for the SSH server to be ready to accept connections.
 func (g *GitServer) waitForSSH() {
 	g.t.Helper()
 
 	for i := 0; i < 30; i++ {
-		res, _ := g.docker.r.Exec(g.ctx, ExecSpec{
+		res, _ := g.r.Exec(g.ctx, ExecSpec{
 			Cmd:    "docker",
 			Args:   []string{"exec", g.containerID, "sh", "-c", "pgrep -x sshd > /dev/null && echo ready"},
 			Prefix: "[gitserver]",
@@ -203,11 +216,11 @@ func (g *GitServer) GetHostKeyFingerprint() string {
 // Cleanup removes the git server container and image.
 func (g *GitServer) Cleanup() {
 	if g.containerID != "" {
-		g.docker.stopAndRemoveContainer(g.containerID)
+		g.dockerRun("rm", "-f", g.containerID)
 		g.containerID = ""
 	}
 	if g.imageTag != "" {
-		g.docker.removeImage(g.imageTag)
+		g.dockerRun("rmi", "-f", g.imageTag)
 		g.imageTag = ""
 	}
 }
