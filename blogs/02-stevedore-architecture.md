@@ -11,11 +11,11 @@ At its heart, Stevedore is a polling loop. It checks your Git repositories every
 
 ### Worker Containers
 
-We follow the "Docker-first" philosophy. The Stevedore daemon itself is a minimal container. When it needs to talk to Git, it spawns a **Worker Container**.
+We follow the "Docker-first" philosophy. The Stevedore daemon itself is a minimal container. When it needs to perform complex state changes or isolated tasks, it spawns a **Worker Container**.
 
-This is a short-lived `alpine/git` container. We mount a specific volume for the repo cache and inject the SSH deploy key. This provides isolation. If the git command hangs or exploits a vulnerability, it's trapped in a temporary container, not running as root on my host.
+For example, when Stevedore updates itself, it spawns an "Update Worker" that stops the old daemon and starts the new one. It's like a brain transplant, performed by a robot arm.
 
-We do the same for updates. When Stevedore updates itself, it spawns an "Update Worker" that stops the old daemon and starts the new one. It's like a brain transplant, performed by a robot arm.
+The architecture also supports running Git operations inside ephemeral `alpine/git` containers to isolate keys and credentials, though for performance we currently default to using the git binary available in the Stevedore image.
 
 ## State on Disk
 

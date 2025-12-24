@@ -31,7 +31,7 @@ You could write a bash script that does `git pull && docker compose up`. I did t
 *   How do you manage secrets without committing `.env` files?
 *   How do you update the script itself?
 
-Stevedore handles these gracefully. It runs builds in ephemeral "worker" containers. It has a dedicated encrypted parameter store. And yes, it can update itself.
+Stevedore handles these gracefully. It runs builds using standard Docker Compose, ensuring consistency. It has a dedicated encrypted parameter store. And yes, it can update itself.
 
 ## The "Fork First" Philosophy
 
