@@ -3,6 +3,7 @@ package integration_test
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -134,14 +135,17 @@ func TestInstaller_SelfBootstrap(t *testing.T) {
 		t.Errorf("Expected 'Up to date' in check output, got: %s", checkOutput)
 	}
 
-	// Step 8: Push a change and verify check detects it
-	t.Log("Step 8: Pushing a change and verifying detection...")
+	// Step 8: Push a VERSION change to test self-deployment
+	t.Log("Step 8: Pushing VERSION change to test self-deployment...")
 
-	err = gs.UpdateFile(repoName, "TEST_MARKER.txt", "self-bootstrap-test-marker")
+	// Use a unique test version to verify the deployed binary is from the synced repo
+	testVersion := "99.99.99-selftest"
+	err = gs.UpdateFile(repoName, "VERSION", testVersion)
 	if err != nil {
-		t.Fatalf("failed to update file: %v", err)
+		t.Fatalf("failed to update VERSION: %v", err)
 	}
 
+	// Verify check detects the change
 	checkOutput2 := donor.ExecBashOK(installEnv, fmt.Sprintf(`
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh check stevedore
@@ -152,18 +156,89 @@ func TestInstaller_SelfBootstrap(t *testing.T) {
 		t.Errorf("Expected 'Updates available' in check output, got: %s", checkOutput2)
 	}
 
-	// Step 9: Sync and verify the new file appears
-	t.Log("Step 9: Syncing to get the update...")
+	// Step 9: Sync to get the VERSION update
+	t.Log("Step 9: Syncing to get the VERSION update...")
 
 	donor.ExecBashOK(installEnv, fmt.Sprintf(`
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh deploy sync stevedore
 	`, workDir, donor.StevedoreContainerName))
 
-	// Verify the marker file exists
-	markerContent := donor.ExecBashOK(nil, fmt.Sprintf("cat %s/TEST_MARKER.txt", repoDir))
-	if !strings.Contains(markerContent, "self-bootstrap-test-marker") {
-		t.Errorf("Expected marker file content, got: %s", markerContent)
+	// Verify the VERSION file has our test version
+	syncedVersion := strings.TrimSpace(donor.ExecBashOK(nil, fmt.Sprintf("cat %s/VERSION", repoDir)))
+	if syncedVersion != testVersion {
+		t.Errorf("Expected synced VERSION to be %q, got: %q", testVersion, syncedVersion)
+	}
+
+	// Step 10: Deploy from the synced repository and verify the binary version
+	t.Log("Step 10: Deploying from synced repo and verifying binary version...")
+
+	// The self-deployed stevedore container name follows the convention: stevedore-stevedore-<service>
+	selfDeployedContainerPrefix := "stevedore-stevedore"
+
+	// Run deploy up to build and start from the synced repository
+	// Note: On macOS with Docker Desktop, this may fail due to volume mount restrictions
+	// (the container's /opt/stevedore path isn't available to Docker Desktop as a host path)
+	deployRes, deployErr := donor.ExecBashTimeout(installEnv, fmt.Sprintf(`
+		cd %s
+		STEVEDORE_CONTAINER=%s ./stevedore.sh deploy up stevedore
+	`, workDir, donor.StevedoreContainerName), 15*time.Minute)
+
+	// Check for Docker Desktop volume mount limitation (common on macOS)
+	if deployErr != nil && (strings.Contains(deployRes.Output, "mounts denied") ||
+		strings.Contains(deployRes.Output, "is not shared from the host") ||
+		strings.Contains(deployRes.Output, "not known to Docker")) {
+		// This is expected on macOS with Docker Desktop - the container's /opt/stevedore
+		// path cannot be mounted because Docker Desktop only sees the host filesystem
+		t.Logf("Deploy output:\n%s", deployRes.Output)
+		if runtime.GOOS == "darwin" {
+			t.Log("SKIP Step 10: Docker Desktop volume mount limitation (expected on macOS)")
+			t.Log("The deploy verification step requires Linux to properly mount container volumes.")
+			t.Log("All other self-bootstrap functionality has been verified successfully.")
+		} else {
+			// On Linux, this shouldn't happen
+			t.Errorf("Unexpected volume mount error on Linux: %v\nOutput: %s", deployErr, deployRes.Output)
+		}
+	} else if deployErr != nil {
+		t.Fatalf("Deploy failed: %v\nOutput: %s", deployErr, deployRes.Output)
+	} else {
+		t.Logf("Deploy output:\n%s", deployRes.Output)
+
+		// Wait for the container to start
+		time.Sleep(5 * time.Second)
+
+		// Find the self-deployed container
+		containerList := donor.ExecBashOK(nil, fmt.Sprintf("docker ps --filter name=%s --format '{{.Names}}'", selfDeployedContainerPrefix))
+		t.Logf("Self-deployed containers: %s", containerList)
+
+		if !strings.Contains(containerList, selfDeployedContainerPrefix) {
+			t.Errorf("Expected to find self-deployed container with prefix %q, got: %s", selfDeployedContainerPrefix, containerList)
+		} else {
+			// Get the container name (first one)
+			selfDeployedContainer := strings.TrimSpace(strings.Split(containerList, "\n")[0])
+			t.Logf("Self-deployed container name: %s", selfDeployedContainer)
+
+			// Query the version from the self-deployed container
+			versionOutput := strings.TrimSpace(donor.ExecBashOK(nil, fmt.Sprintf(
+				"docker exec %s /app/stevedore version 2>/dev/null || echo 'failed'",
+				selfDeployedContainer,
+			)))
+			t.Logf("Self-deployed version output: %s", versionOutput)
+
+			// Verify the version contains our test version
+			if !strings.Contains(versionOutput, testVersion) {
+				t.Errorf("Expected self-deployed binary to have version %q, got: %s", testVersion, versionOutput)
+			} else {
+				t.Logf("SUCCESS: Self-deployed binary has version %s (contains %q)", versionOutput, testVersion)
+			}
+
+			// Clean up: stop the self-deployed containers
+			t.Log("Cleaning up self-deployed containers...")
+			donor.ExecBashOK(installEnv, fmt.Sprintf(`
+				cd %s
+				STEVEDORE_CONTAINER=%s ./stevedore.sh deploy down stevedore
+			`, workDir, donor.StevedoreContainerName))
+		}
 	}
 
 	t.Log("Self-bootstrap test completed successfully!")
