@@ -169,6 +169,25 @@ stevedore deploy sync homepage
 stevedore deploy sync homepage --no-clean
 ```
 
+### Self-Update (Bootstrap Mode)
+
+When Stevedore is installed with self-bootstrap mode (managing its own repository), it can update itself:
+
+```bash
+# Check for updates to Stevedore itself
+stevedore check stevedore
+
+# Trigger self-update (syncs, builds new image, replaces container)
+stevedore self-update
+```
+
+The self-update workflow:
+1. Syncs the `stevedore` deployment to get latest changes
+2. Builds a new Docker image from the updated code
+3. Spawns an update worker container
+4. Worker stops the running Stevedore, starts a new one with the new image
+5. Workload containers are **not affected** during the update
+
 Add the printed public key to your repo as a **read-only Deploy Key**.
 See `docs/REPOSITORIES.md`.
 
