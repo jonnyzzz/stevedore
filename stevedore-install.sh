@@ -42,6 +42,16 @@ docker_cmd() {
   docker "$@"
 }
 
+is_ssh_url() {
+  url="${1:-}"
+  case "$url" in
+    git@*) return 0 ;;
+    ssh://*) return 0 ;;
+    *@*:*) return 0 ;;  # SCP-style: user@host:/path
+  esac
+  return 1
+}
+
 is_upstream_repo_main() {
   repo="${1:-}"
   branch="${2:-}"
@@ -270,8 +280,23 @@ To install Stevedore:
 
   git_repo=""
   git_branch=""
-  if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+  # Allow override via STEVEDORE_GIT_URL (must be SSH URL)
+  if [ -n "${STEVEDORE_GIT_URL:-}" ]; then
+    if ! is_ssh_url "${STEVEDORE_GIT_URL}"; then
+      die "STEVEDORE_GIT_URL must be an SSH URL (user@host:/path, git@host:path, or ssh://...), got: ${STEVEDORE_GIT_URL}"
+    fi
+    git_repo="${STEVEDORE_GIT_URL}"
+    log "Using STEVEDORE_GIT_URL: ${git_repo}"
+  elif command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git_repo="$(git remote get-url origin 2>/dev/null || true)"
+  fi
+
+  # Detect or override branch
+  if [ -n "${STEVEDORE_GIT_BRANCH:-}" ]; then
+    git_branch="${STEVEDORE_GIT_BRANCH}"
+    log "Using STEVEDORE_GIT_BRANCH: ${git_branch}"
+  elif command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   fi
 

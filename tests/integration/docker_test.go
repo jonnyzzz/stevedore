@@ -209,6 +209,11 @@ func (c *TestContainer) GetIP() string {
 	return GetContainerIP(c.t, c.r, c.ctx, c.containerID)
 }
 
+// GetContainerName returns the container name.
+func (c *TestContainer) GetContainerName() string {
+	return c.name
+}
+
 // Exec runs a command inside the container.
 func (c *TestContainer) Exec(args ...string) (ExecResult, error) {
 	c.t.Helper()

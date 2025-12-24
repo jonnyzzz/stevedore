@@ -204,3 +204,64 @@ func (g *GitServer) DeleteFile(repoName, filename string) error {
 
 	return nil
 }
+
+// InitRepoFromContainer initializes a repository with files from another container.
+// This is useful for testing self-bootstrap scenarios where we push the current
+// Stevedore source code to the git server.
+// srcContainer: the container to copy files from
+// srcPath: the path in the source container (e.g., "/tmp/stevedore-src")
+// repoName: the name of the repository to create
+func (g *GitServer) InitRepoFromContainer(srcContainer *TestContainer, srcPath, repoName string) error {
+	g.t.Helper()
+
+	// Create bare repo
+	if err := g.CreateBareRepo(repoName); err != nil {
+		return err
+	}
+
+	bareRepoPath := fmt.Sprintf("/git/%s.git", repoName)
+	workRepoPath := fmt.Sprintf("/tmp/%s-init", repoName)
+
+	// Create working directory in git server
+	g.container.ExecOK("mkdir", "-p", workRepoPath)
+
+	// Transfer files from source container to git server using tar pipe through host
+	// Exclude .git directory to avoid conflicts with the new git repo we'll create
+	// Step 1: Create tarball from source container (excluding .git)
+	tarCmd := fmt.Sprintf("docker exec %s tar -C %s --exclude=.git --exclude=.tmp -cf - .", srcContainer.GetContainerName(), srcPath)
+
+	// Step 2: Extract tarball into git server
+	extractCmd := fmt.Sprintf("docker exec -i %s tar -C %s -xf -", g.container.GetContainerName(), workRepoPath)
+
+	// Run the pipe: tar from source | extract to destination
+	pipeCmd := fmt.Sprintf("%s | %s", tarCmd, extractCmd)
+
+	// Execute on host (the test runner has access to docker)
+	g.t.Logf("Transferring files from %s:%s to git server repo %s", srcContainer.GetContainerName(), srcPath, repoName)
+	if _, err := srcContainer.r.Exec(srcContainer.ctx, ExecSpec{
+		Cmd:    "sh",
+		Args:   []string{"-c", pipeCmd},
+		Prefix: "[tar-pipe]",
+	}); err != nil {
+		return fmt.Errorf("failed to transfer files: %w", err)
+	}
+
+	// Initialize git repo and commit
+	g.container.ExecOK("git", "-C", workRepoPath, "init")
+	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.email", "test@test.local")
+	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.name", "Test")
+	g.container.ExecOK("git", "-C", workRepoPath, "add", ".")
+	g.container.ExecOK("git", "-C", workRepoPath, "commit", "-m", "Initial commit from source container")
+	g.container.ExecOK("git", "-C", workRepoPath, "branch", "-M", "main")
+	g.container.ExecOK("git", "-C", workRepoPath, "remote", "add", "origin", bareRepoPath)
+	g.container.ExecOK("git", "-C", workRepoPath, "push", "-u", "origin", "main")
+
+	// Update bare repo HEAD to point to main
+	g.container.ExecOK("git", "-C", bareRepoPath, "symbolic-ref", "HEAD", "refs/heads/main")
+
+	// Clean up working directory
+	g.container.ExecOK("rm", "-rf", workRepoPath)
+
+	g.t.Logf("Git repository %s initialized from container %s", repoName, srcContainer.GetContainerName())
+	return nil
+}
