@@ -277,6 +277,20 @@ func TestSelfUpgrade(t *testing.T) {
 		)
 		t.Logf("Update worker containers: %s", workerContainers)
 
+		// Read the update.log file for debugging
+		updateLogPath := filepath.Join(stateDir, "system", "update.log")
+		updateLog := donor.ExecBashOK(nil, fmt.Sprintf(
+			"cat %s 2>&1 || echo 'update.log not found'",
+			updateLogPath,
+		))
+		t.Logf("Update log:\n%s", updateLog)
+
+		// Also check what containers are running
+		allContainers := donor.ExecBashOK(nil,
+			`docker ps -a --format "{{.Names}} {{.Status}}" | head -20`,
+		)
+		t.Logf("All containers:\n%s", allContainers)
+
 		t.Fatal("Stevedore was not updated to new version within timeout")
 	}
 

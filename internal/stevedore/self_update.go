@@ -164,26 +164,56 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	// Get container env file path (on host)
 	envFilePath := filepath.Join(hostRoot, "system", "container.env")
 
+	// Path to log file on host for debugging
+	logFilePath := filepath.Join(hostRoot, "system", "update.log")
+
 	// Create the update script that will run in a separate container
 	updateScript := fmt.Sprintf(`#!/bin/sh
-set -e
+# Do not use set -e - we want to log all errors and continue
+LOG_FILE="%s"
 
-echo "Self-update worker starting..."
+log() {
+  echo "$@"
+  echo "$(date '+%%Y-%%m-%%d %%H:%%M:%%S') $@" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+log "Self-update worker starting..."
+log "Container name: %s"
+log "New image: %s"
+log "Host root: %s"
+log "Env file: %s"
+log "Restart policy: %s"
 
 # Wait a moment for the original container to be ready for replacement
 sleep 2
 
 # Stop the current container
-echo "Stopping container: %s"
-docker stop %s || true
+log "Stopping container: %s"
+if docker stop %s; then
+  log "Container stopped successfully"
+else
+  log "Warning: docker stop failed (may already be stopped)"
+fi
 
 # Remove the old container
-echo "Removing old container..."
-docker rm %s || true
+log "Removing old container..."
+if docker rm %s; then
+  log "Container removed successfully"
+else
+  log "Warning: docker rm failed (may already be removed)"
+fi
+
+# Verify env file exists
+if [ ! -f "%s" ]; then
+  log "ERROR: Env file not found at %s"
+  log "Listing system directory:"
+  ls -la "$(dirname '%s')" >> "$LOG_FILE" 2>&1 || log "Could not list directory"
+  exit 1
+fi
 
 # Start new container with the same configuration
-echo "Starting new container with image: %s"
-docker run -d \
+log "Starting new container with image: %s"
+if docker run -d \
   --name %s \
   --restart %s \
   --env-file %s \
@@ -191,10 +221,30 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v %s:/opt/stevedore \
   %s \
-  /app/stevedore -d
+  /app/stevedore -d; then
+  log "New container started successfully"
+else
+  log "ERROR: Failed to start new container"
+  log "Docker error:"
+  docker run -d \
+    --name %s \
+    --restart %s \
+    --env-file %s \
+    -p 42107:42107 \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v %s:/opt/stevedore \
+    %s \
+    /app/stevedore -d 2>> "$LOG_FILE" || true
+  exit 1
+fi
 
-echo "Self-update complete!"
-`, containerName, containerName, containerName, newImageTag, containerName, restartPolicy, envFilePath, hostRoot, newImageTag)
+log "Self-update complete!"
+`, logFilePath, containerName, newImageTag, hostRoot, envFilePath, restartPolicy,
+		containerName, containerName,
+		containerName,
+		envFilePath, envFilePath, envFilePath,
+		newImageTag, containerName, restartPolicy, envFilePath, hostRoot, newImageTag,
+		containerName, restartPolicy, envFilePath, hostRoot, newImageTag)
 
 	// Run the update worker
 	workerName := fmt.Sprintf("stevedore-update-%d", time.Now().Unix())
