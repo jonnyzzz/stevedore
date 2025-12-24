@@ -198,11 +198,14 @@ func TestSelfUpgrade(t *testing.T) {
 	))
 	t.Logf("Simple-app container ID before update: %s", simpleAppContainerBefore)
 
-	selfUpdateOutput := donor.ExecBashOKTimeout(installEnv, fmt.Sprintf(`
+	selfUpdateRes, selfUpdateErr := donor.ExecBashTimeout(installEnv, fmt.Sprintf(`
 		cd %s
-		STEVEDORE_CONTAINER=%s ./stevedore.sh self-update
+		STEVEDORE_CONTAINER=%s ./stevedore.sh self-update 2>&1
 	`, workDir, donor.StevedoreContainerName), 15*time.Minute)
-	t.Logf("Self-update output:\n%s", selfUpdateOutput)
+	t.Logf("Self-update output:\n%s", selfUpdateRes.Output)
+	if selfUpdateErr != nil {
+		t.Fatalf("Self-update failed (exit %d): %v", selfUpdateRes.ExitCode, selfUpdateErr)
+	}
 
 	// Step 10: Wait for self-update to complete
 	t.Log("Step 10: Waiting for self-update to complete...")
