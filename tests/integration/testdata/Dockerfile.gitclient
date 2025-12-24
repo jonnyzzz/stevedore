@@ -1,0 +1,12 @@
+# Git client for integration tests
+# Provides git and SSH client for testing git operations against GitServer
+FROM alpine:3.19
+
+# Install git and openssh client
+RUN apk add --no-cache git openssh-client
+
+# Create .ssh directory for keys
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+# Keep container running
+CMD ["sleep", "infinity"]

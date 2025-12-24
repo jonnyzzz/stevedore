@@ -131,6 +131,9 @@ func (g *GitServer) InitRepoWithContent(name string, files map[string]string) er
 	g.container.ExecOK("git", "-C", workRepoPath, "remote", "add", "origin", bareRepoPath)
 	g.container.ExecOK("git", "-C", workRepoPath, "push", "-u", "origin", "main")
 
+	// Update bare repo HEAD to point to main (default is master)
+	g.container.ExecOK("git", "-C", bareRepoPath, "symbolic-ref", "HEAD", "refs/heads/main")
+
 	// Clean up working directory
 	g.container.ExecOK("rm", "-rf", workRepoPath)
 
