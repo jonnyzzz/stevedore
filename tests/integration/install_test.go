@@ -21,6 +21,8 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 		"STEVEDORE_CONTAINER_NAME":      donor.StevedoreContainerName,
 		"STEVEDORE_HOST_ROOT":           donor.StateHostPath,
 		"STEVEDORE_IMAGE":               donor.StevedoreImageTag,
+		"STEVEDORE_GIT_URL":             "git@github.com:test/test.git", // Required to bypass .git check
+		"STEVEDORE_GIT_BRANCH":          "test",                         // Required to bypass .git check
 	}
 	donor.ExecBashOKTimeout(installEnv, "cd /work/stevedore && ./stevedore-install.sh", 20*time.Minute)
 

@@ -268,7 +268,9 @@ main() {
   [ -f "Dockerfile" ] || die "Dockerfile not found in script directory: $script_dir"
 
   # Assert: must be running from a git checkout (v0-1 requirement)
-  [ -d ".git" ] || die "Not a git repository. Stevedore must be installed from a git clone.
+  # Skip this check if both STEVEDORE_GIT_URL and STEVEDORE_GIT_BRANCH are provided
+  if [ -z "${STEVEDORE_GIT_URL:-}" ] || [ -z "${STEVEDORE_GIT_BRANCH:-}" ]; then
+    [ -d ".git" ] || die "Not a git repository. Stevedore must be installed from a git clone.
 
 To install Stevedore:
   1. Fork or clone the repository:
@@ -277,6 +279,7 @@ To install Stevedore:
   2. Run the installer from within the cloned directory:
      cd stevedore
      ./stevedore-install.sh"
+  fi
 
   git_repo=""
   git_branch=""

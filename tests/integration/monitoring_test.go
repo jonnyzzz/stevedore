@@ -37,6 +37,8 @@ func TestMonitoringWorkflow(t *testing.T) {
 		"STEVEDORE_ASSUME_YES":          "1",
 		"STEVEDORE_BOOTSTRAP_SELF":      "0",
 		"STEVEDORE_ALLOW_UPSTREAM_MAIN": "1",
+		"STEVEDORE_GIT_URL":             "git@github.com:test/test.git", // Required to bypass .git check
+		"STEVEDORE_GIT_BRANCH":          "test",                         // Required to bypass .git check
 	}
 
 	// Step 1: Install stevedore
