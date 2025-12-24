@@ -210,6 +210,37 @@ func TestSelfUpgrade(t *testing.T) {
 	// Step 10: Wait for self-update to complete
 	t.Log("Step 10: Waiting for self-update to complete...")
 
+	// Give the update worker a moment to start
+	time.Sleep(3 * time.Second)
+
+	// Find the update worker container
+	workerContainers := donor.ExecBashOK(nil,
+		`docker ps -a --filter "label=com.stevedore.role=update-worker" --format "{{.Names}} {{.Status}}"`,
+	)
+	t.Logf("Update worker containers: %s", workerContainers)
+
+	// If worker exists, wait for it to complete and get logs
+	if workerContainers != "" {
+		workerName := strings.Fields(strings.TrimSpace(workerContainers))[0]
+		t.Logf("Waiting for update worker %s to complete...", workerName)
+
+		// Wait for worker to finish (max 2 minutes)
+		workerDeadline := time.Now().Add(2 * time.Minute)
+		for time.Now().Before(workerDeadline) {
+			status := strings.TrimSpace(donor.ExecBashOK(nil,
+				fmt.Sprintf(`docker ps -a --filter name=^%s$ --format "{{.Status}}"`, workerName),
+			))
+			if status == "" || strings.Contains(status, "Exited") {
+				break
+			}
+			time.Sleep(2 * time.Second)
+		}
+
+		// Get worker logs before it's removed
+		workerLogs := donor.ExecBashOK(nil, fmt.Sprintf(`docker logs %s 2>&1 || echo "no logs"`, workerName))
+		t.Logf("Update worker logs:\n%s", workerLogs)
+	}
+
 	// The self-update spawns a worker that replaces the stevedore container
 	// We need to wait for the new container to start
 	deadline := time.Now().Add(3 * time.Minute)

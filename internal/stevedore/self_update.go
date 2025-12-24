@@ -208,12 +208,14 @@ echo "Self-update complete!"
 	}
 
 	// Run the update worker container
+	// Use hostRoot (the host path) for volume mount, not the container path
+	hostSystemDir := hostRoot + "/system"
 	args := []string{
 		"run", "-d",
 		"--name", workerName,
 		"--rm",
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-		"-v", s.instance.SystemDir() + ":/stevedore-system:ro",
+		"-v", hostSystemDir + ":/stevedore-system:ro",
 		"--label", "com.stevedore.managed=true",
 		"--label", "com.stevedore.role=update-worker",
 		"docker:cli",
