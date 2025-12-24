@@ -199,33 +199,28 @@ func TestSelfUpgrade(t *testing.T) {
 	t.Logf("Simple-app container ID before update: %s", simpleAppContainerBefore)
 
 	// The self-update command will:
-	// 1. Build the new image with the same tag as current
-	// 2. Exit the container (os.Exit(0))
-	// 3. Docker's restart policy will restart the container with the new image
-	//
-	// So we expect the command to "fail" from docker exec's perspective
-	// because the container exits during the command
-	selfUpdateRes, _ := donor.ExecBashTimeout(installEnv, fmt.Sprintf(`
+	// 1. Build the new image
+	// 2. Spawn an update worker container
+	// 3. The worker will stop/rm the current container and start a new one
+	selfUpdateRes, selfUpdateErr := donor.ExecBashTimeout(installEnv, fmt.Sprintf(`
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh self-update 2>&1
 	`, workDir, donor.StevedoreContainerName), 15*time.Minute)
 	t.Logf("Self-update output:\n%s", selfUpdateRes.Output)
 
-	// Check if self-update started successfully (it may exit mid-execution)
-	if !strings.Contains(selfUpdateRes.Output, "Self-update:") &&
-		!strings.Contains(selfUpdateRes.Output, "Building new") {
-		t.Fatalf("Self-update doesn't appear to have started. Output: %s", selfUpdateRes.Output)
+	// Self-update should succeed (it just spawns the worker)
+	if selfUpdateErr != nil {
+		t.Fatalf("Self-update failed: %v", selfUpdateErr)
 	}
 
-	// Step 10: Wait for container to restart with new version
-	t.Log("Step 10: Waiting for container to restart with new version...")
+	// Step 10: Wait for update worker to complete and new container to start
+	t.Log("Step 10: Waiting for update worker to complete...")
 
-	// Docker's restart policy will restart the container
-	// Give it time to restart
+	// Give the worker time to start and do its work
 	time.Sleep(5 * time.Second)
 
 	// Wait for the new container to start with the new version
-	deadline := time.Now().Add(2 * time.Minute)
+	deadline := time.Now().Add(3 * time.Minute)
 	var newStevedoreRunning bool
 	for time.Now().Before(deadline) {
 		// Check if stevedore container is running with the new version
@@ -259,17 +254,25 @@ func TestSelfUpgrade(t *testing.T) {
 		))
 		t.Logf("Stevedore container logs:\n%s", logs)
 
+		// Check update worker status and logs
+		workerContainers := donor.ExecBashOK(nil,
+			`docker ps -a --filter "label=com.stevedore.role=update-worker" --format "{{.Names}} {{.Status}}"`,
+		)
+		t.Logf("Update worker containers: %s", workerContainers)
+
+		// Read the update.log file for debugging
+		updateLogPath := filepath.Join(stateDir, "system", "update.log")
+		updateLog := donor.ExecBashOK(nil, fmt.Sprintf(
+			"cat %s 2>&1 || echo 'update.log not found'",
+			updateLogPath,
+		))
+		t.Logf("Update log:\n%s", updateLog)
+
 		// Check all containers
 		allContainers := donor.ExecBashOK(nil,
 			`docker ps -a --format "{{.Names}} {{.Status}} {{.Image}}" | head -20`,
 		)
 		t.Logf("All containers:\n%s", allContainers)
-
-		// Check backup image was created
-		backupImages := donor.ExecBashOK(nil,
-			`docker images --filter "reference=*:backup-*" --format "{{.Repository}}:{{.Tag}}"`,
-		)
-		t.Logf("Backup images: %s", backupImages)
 
 		t.Fatal("Stevedore was not updated to new version within timeout")
 	}
