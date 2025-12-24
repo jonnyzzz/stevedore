@@ -198,6 +198,27 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	// Host paths (for docker run command which runs on the host)
 	hostSystemDir := hostRoot + "/system"
 
+	// Ensure the container env file is present and has entries before stopping anything.
+	envPath := filepath.Join(s.instance.SystemDir(), "container.env")
+	envData, err := os.ReadFile(envPath)
+	if err != nil {
+		return fmt.Errorf("read container env: %w", err)
+	}
+	envCount := 0
+	for _, line := range strings.Split(string(envData), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.Contains(line, "=") {
+			envCount++
+		}
+	}
+	if envCount == 0 {
+		return fmt.Errorf("container env is empty: %s", envPath)
+	}
+	log.Printf("Self-update: loaded %d env entries from %s", envCount, envPath)
+
 	// Create the update script
 	// IMPORTANT: This script runs inside the worker container, which mounts:
 	//   hostSystemDir -> /worker-data (read-write)
@@ -219,6 +240,33 @@ log "New image: %s"
 log "Host root: %s"
 log "Restart policy: %s"
 
+# Verify env file exists before stopping the container
+if [ ! -f "/worker-data/container.env" ]; then
+  log "ERROR: container.env not found in /worker-data"
+  log "Contents of /worker-data:"
+  ls -la /worker-data >> "$LOG_FILE" 2>&1
+  exit 1
+fi
+
+# Read env file and build -e flags
+# This avoids host path resolution issues with --env-file
+ENV_ARGS=""
+ENV_COUNT=0
+while IFS= read -r line || [ -n "$line" ]; do
+  # Skip empty lines and comments
+  case "$line" in
+    ""|\#*) continue ;;
+  esac
+  ENV_ARGS="$ENV_ARGS -e $line"
+  ENV_COUNT=$((ENV_COUNT + 1))
+done < /worker-data/container.env
+
+if [ "$ENV_COUNT" -eq 0 ]; then
+  log "ERROR: container.env is empty"
+  exit 1
+fi
+log "Environment variables loaded: $ENV_COUNT entries"
+
 # Wait for main container to be ready for replacement
 sleep 2
 
@@ -237,27 +285,6 @@ if docker rm "%s" 2>> "$LOG_FILE"; then
 else
   log "Warning: rm failed (may already be removed)"
 fi
-
-# Verify env file exists
-if [ ! -f "/worker-data/container.env" ]; then
-  log "ERROR: container.env not found in /worker-data"
-  log "Contents of /worker-data:"
-  ls -la /worker-data >> "$LOG_FILE" 2>&1
-  exit 1
-fi
-
-# Read env file and build -e flags
-# This avoids host path resolution issues with --env-file
-ENV_ARGS=""
-while IFS= read -r line || [ -n "$line" ]; do
-  # Skip empty lines and comments
-  case "$line" in
-    ""|\#*) continue ;;
-  esac
-  ENV_ARGS="$ENV_ARGS -e $line"
-done < /worker-data/container.env
-
-log "Environment variables loaded"
 
 # Start new container
 log "Starting new container with image %s..."
