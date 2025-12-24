@@ -96,7 +96,7 @@ Need to set an API key? Don't commit it.
 stevedore param set my-app API_KEY "super-secret-value"
 ```
 
-Stevedore stores this in its encrypted database. You can use it in your `docker-compose.yaml` (we are still working on the best way to inject these, stay tuned!).
+Stevedore stores this in its encrypted database. We are currently building the mechanism to inject these securely into your containers (stay tuned!).
 
 ## Conclusion
 
