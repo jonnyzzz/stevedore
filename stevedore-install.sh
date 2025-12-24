@@ -183,7 +183,18 @@ EOF
 
 build_image() {
   log "Building image: ${STEVEDORE_IMAGE}"
-  docker_cmd build -t "${STEVEDORE_IMAGE}" .
+  if [ "${DOCKER_USE_SUDO}" = "1" ]; then
+    if ! sudo_cmd env DOCKER_BUILDKIT=1 docker build -t "${STEVEDORE_IMAGE}" .; then
+      log "WARNING: BuildKit build failed, retrying with legacy builder"
+      sudo_cmd docker build -t "${STEVEDORE_IMAGE}" .
+    fi
+    return 0
+  fi
+
+  if ! DOCKER_BUILDKIT=1 docker build -t "${STEVEDORE_IMAGE}" .; then
+    log "WARNING: BuildKit build failed, retrying with legacy builder"
+    docker build -t "${STEVEDORE_IMAGE}" .
+  fi
 }
 
 install_systemd_service() {
