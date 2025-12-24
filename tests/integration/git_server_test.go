@@ -1,9 +1,7 @@
 package integration_test
 
 import (
-	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,55 +12,29 @@ import (
 // repository that can be accessed via SSH.
 // Uses Dockerfile.gitserver from testdata directory.
 type GitServer struct {
-	t             testing.TB
-	prefix        string
-	containerID   string
-	containerName string
-	imageTag      string
-	ipAddress     string
-	r             *Runner
-	ctx           context.Context
+	t         testing.TB
+	container *TestContainer
+	ipAddress string
 }
 
 // NewGitServer creates and starts a new Git server sidecar container.
 // The server is built from Dockerfile.gitserver and configured with OpenSSH and git.
-func NewGitServer(t testing.TB, prefix string) *GitServer {
+func NewGitServer(t testing.TB, _ string) *GitServer {
 	t.Helper()
 
-	ctx := context.Background()
-	r := NewRunner(t)
-
-	containerName := prefix + "-gitserver"
-	imageTag := "stevedore-gitserver:" + fmt.Sprintf("%d", time.Now().UnixNano())
-
-	g := &GitServer{
-		t:             t,
-		prefix:        prefix,
-		containerName: containerName,
-		imageTag:      imageTag,
-		r:             r,
-		ctx:           ctx,
-	}
-
-	// Clean up any existing container with same name
-	g.dockerRun("rm", "-f", containerName)
-
-	// Build the git server image
-	repoRoot := RepoRoot(t)
-	dockerfilePath := filepath.Join(repoRoot, "tests", "integration", "testdata", "Dockerfile.gitserver")
-	g.dockerRunOK("build", "-t", imageTag, "-f", dockerfilePath, filepath.Dir(dockerfilePath))
-
-	// Start the container
-	output := g.dockerRunOK("run", "-d", "--name", containerName, imageTag)
-	g.containerID = strings.TrimSpace(output)
-
-	// Register cleanup
-	t.Cleanup(func() {
-		g.Cleanup()
+	container := NewTestContainerWithOptions(t, "Dockerfile.gitserver", ContainerOptions{
+		MountDockerSocket: false,
+		MountRepoRoot:     false,
+		CreateStateDir:    false,
 	})
 
+	g := &GitServer{
+		t:         t,
+		container: container,
+	}
+
 	// Get container IP address
-	g.ipAddress = GetContainerIP(t, r, ctx, g.containerID)
+	g.ipAddress = container.GetIP()
 	if g.ipAddress == "" {
 		t.Fatal("failed to get git server container IP address")
 	}
@@ -75,52 +47,12 @@ func NewGitServer(t testing.TB, prefix string) *GitServer {
 	return g
 }
 
-// dockerRun executes a docker command, ignoring errors.
-func (g *GitServer) dockerRun(args ...string) (ExecResult, error) {
-	g.t.Helper()
-	return g.r.Exec(g.ctx, ExecSpec{
-		Cmd:    "docker",
-		Args:   args,
-		Prefix: "[docker]",
-	})
-}
-
-// dockerRunOK executes a docker command and fails the test on error.
-func (g *GitServer) dockerRunOK(args ...string) string {
-	g.t.Helper()
-	res, err := g.dockerRun(args...)
-	if err != nil || res.ExitCode != 0 {
-		g.t.Fatalf("docker %s failed (exit=%d): %v", strings.Join(args, " "), res.ExitCode, err)
-	}
-	return res.Output
-}
-
-// execInContainer executes a command inside the git server container.
-func (g *GitServer) execInContainer(args ...string) string {
-	g.t.Helper()
-
-	dockerArgs := append([]string{"exec", g.containerID}, args...)
-	res, err := g.r.Exec(g.ctx, ExecSpec{
-		Cmd:    "docker",
-		Args:   dockerArgs,
-		Prefix: "[gitserver]",
-	})
-	if err != nil || res.ExitCode != 0 {
-		g.t.Fatalf("exec in git server failed: %s %v", strings.Join(args, " "), err)
-	}
-	return res.Output
-}
-
 // waitForSSH waits for the SSH server to be ready to accept connections.
 func (g *GitServer) waitForSSH() {
 	g.t.Helper()
 
 	for i := 0; i < 30; i++ {
-		res, _ := g.r.Exec(g.ctx, ExecSpec{
-			Cmd:    "docker",
-			Args:   []string{"exec", g.containerID, "sh", "-c", "pgrep -x sshd > /dev/null && echo ready"},
-			Prefix: "[gitserver]",
-		})
+		res, _ := g.container.Exec("sh", "-c", "pgrep -x sshd > /dev/null && echo ready")
 		if strings.TrimSpace(res.Output) == "ready" {
 			return
 		}
@@ -145,7 +77,7 @@ func (g *GitServer) CreateBareRepo(name string) error {
 	g.t.Helper()
 
 	repoPath := fmt.Sprintf("/git/%s.git", name)
-	g.execInContainer("git", "init", "--bare", repoPath)
+	g.container.ExecOK("git", "init", "--bare", repoPath)
 	return nil
 }
 
@@ -155,8 +87,8 @@ func (g *GitServer) AddAuthorizedKey(pubKey string) error {
 
 	// Escape single quotes in the key
 	escapedKey := strings.ReplaceAll(pubKey, "'", "'\"'\"'")
-	g.execInContainer("sh", "-c", fmt.Sprintf("echo '%s' >> /root/.ssh/authorized_keys", escapedKey))
-	g.execInContainer("chmod", "600", "/root/.ssh/authorized_keys")
+	g.container.ExecOK("sh", "-c", fmt.Sprintf("echo '%s' >> /root/.ssh/authorized_keys", escapedKey))
+	g.container.ExecOK("chmod", "600", "/root/.ssh/authorized_keys")
 	return nil
 }
 
@@ -176,31 +108,31 @@ func (g *GitServer) InitRepoWithContent(name string, files map[string]string) er
 	workRepoPath := fmt.Sprintf("/tmp/%s-work", name)
 
 	// Create a working directory and initialize git
-	g.execInContainer("mkdir", "-p", workRepoPath)
-	g.execInContainer("git", "-C", workRepoPath, "init")
-	g.execInContainer("git", "-C", workRepoPath, "config", "user.email", "test@test.local")
-	g.execInContainer("git", "-C", workRepoPath, "config", "user.name", "Test")
+	g.container.ExecOK("mkdir", "-p", workRepoPath)
+	g.container.ExecOK("git", "-C", workRepoPath, "init")
+	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.email", "test@test.local")
+	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.name", "Test")
 
 	// Create files
 	for filename, content := range files {
 		// Handle subdirectories
 		if strings.Contains(filename, "/") {
 			dir := filename[:strings.LastIndex(filename, "/")]
-			g.execInContainer("mkdir", "-p", workRepoPath+"/"+dir)
+			g.container.ExecOK("mkdir", "-p", workRepoPath+"/"+dir)
 		}
 		// Write file content using quoted heredoc (no escaping needed - content is literal)
-		g.execInContainer("sh", "-c", fmt.Sprintf("cat > '%s/%s' << 'STEVEDORE_EOF'\n%s\nSTEVEDORE_EOF", workRepoPath, filename, content))
+		g.container.ExecOK("sh", "-c", fmt.Sprintf("cat > '%s/%s' << 'STEVEDORE_EOF'\n%s\nSTEVEDORE_EOF", workRepoPath, filename, content))
 	}
 
 	// Commit and push using local file protocol
-	g.execInContainer("git", "-C", workRepoPath, "add", ".")
-	g.execInContainer("git", "-C", workRepoPath, "commit", "-m", "Initial commit")
-	g.execInContainer("git", "-C", workRepoPath, "branch", "-M", "main")
-	g.execInContainer("git", "-C", workRepoPath, "remote", "add", "origin", bareRepoPath)
-	g.execInContainer("git", "-C", workRepoPath, "push", "-u", "origin", "main")
+	g.container.ExecOK("git", "-C", workRepoPath, "add", ".")
+	g.container.ExecOK("git", "-C", workRepoPath, "commit", "-m", "Initial commit")
+	g.container.ExecOK("git", "-C", workRepoPath, "branch", "-M", "main")
+	g.container.ExecOK("git", "-C", workRepoPath, "remote", "add", "origin", bareRepoPath)
+	g.container.ExecOK("git", "-C", workRepoPath, "push", "-u", "origin", "main")
 
 	// Clean up working directory
-	g.execInContainer("rm", "-rf", workRepoPath)
+	g.container.ExecOK("rm", "-rf", workRepoPath)
 
 	return nil
 }
@@ -209,18 +141,12 @@ func (g *GitServer) InitRepoWithContent(name string, files map[string]string) er
 func (g *GitServer) GetHostKeyFingerprint() string {
 	g.t.Helper()
 
-	output := g.execInContainer("ssh-keygen", "-lf", "/etc/ssh/ssh_host_ed25519_key.pub")
+	output := g.container.ExecOK("ssh-keygen", "-lf", "/etc/ssh/ssh_host_ed25519_key.pub")
 	return strings.TrimSpace(output)
 }
 
 // Cleanup removes the git server container and image.
+// Note: cleanup is handled automatically by TestContainer via t.Cleanup().
 func (g *GitServer) Cleanup() {
-	if g.containerID != "" {
-		g.dockerRun("rm", "-f", g.containerID)
-		g.containerID = ""
-	}
-	if g.imageTag != "" {
-		g.dockerRun("rmi", "-f", g.imageTag)
-		g.imageTag = ""
-	}
+	// TestContainer handles cleanup automatically
 }

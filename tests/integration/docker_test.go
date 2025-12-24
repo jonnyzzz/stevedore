@@ -20,8 +20,9 @@ type TestContainer struct {
 	ctx context.Context
 	r   *Runner
 
-	name   string
-	docker *dockerCLI
+	name        string
+	containerID string
+	docker      *dockerCLI
 
 	// ImageTag is the tag of the built donor container image.
 	ImageTag string
@@ -42,13 +43,34 @@ type TestContainer struct {
 	StevedoreImageTag string
 }
 
+// ContainerOptions configures how a test container is created.
+type ContainerOptions struct {
+	// MountDockerSocket mounts /var/run/docker.sock into the container.
+	MountDockerSocket bool
+	// MountRepoRoot mounts the repository root as /tmp/stevedore-src:ro.
+	MountRepoRoot bool
+	// CreateStateDir creates a state directory and mounts it.
+	CreateStateDir bool
+}
+
 // NewTestContainer creates a new test container from the specified Dockerfile.
-// It builds the image, starts the container with proper mounts, and registers cleanup.
+// It builds the image, starts the container with Docker socket, repo source, and state mounts.
 // If Docker is not available, the test is skipped.
 //
-// The Dockerfile should be located in tests/integration directory.
+// The Dockerfile should be located in tests/integration/testdata directory.
 // Example: NewTestContainer(t, "Dockerfile.ubuntu")
 func NewTestContainer(t testing.TB, dockerfile string) *TestContainer {
+	t.Helper()
+	return NewTestContainerWithOptions(t, dockerfile, ContainerOptions{
+		MountDockerSocket: true,
+		MountRepoRoot:     true,
+		CreateStateDir:    true,
+	})
+}
+
+// NewTestContainerWithOptions creates a new test container with configurable options.
+// Use this for containers that don't need the full donor container setup (e.g., sidecars).
+func NewTestContainerWithOptions(t testing.TB, dockerfile string, opts ContainerOptions) *TestContainer {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -67,7 +89,7 @@ func NewTestContainer(t testing.TB, dockerfile string) *TestContainer {
 	prefix := "stevedore-it-" + dockerfileID
 	runID := fmt.Sprintf("%d", time.Now().UnixNano())
 	containerPrefix := prefix + "-" + runID
-	containerName := containerPrefix + "-donor"
+	containerName := containerPrefix + "-container"
 	imageTag := prefix + ":" + runID
 
 	repoRoot := RepoRoot(t)
@@ -77,16 +99,19 @@ func NewTestContainer(t testing.TB, dockerfile string) *TestContainer {
 		t.Fatalf("Dockerfile not found: %s", dockerfilePath)
 	}
 
-	stateDir := filepath.Join(repoRoot, ".tmp", prefix+"-"+runID)
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatalf("mkdir state dir: %v", err)
+	var stateDir string
+	if opts.CreateStateDir {
+		stateDir = filepath.Join(repoRoot, ".tmp", prefix+"-"+runID)
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatalf("mkdir state dir: %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(stateDir) })
 	}
 
 	stevedoreContainerName := containerPrefix + "-stevedore"
 	stevedoreImageTag := "stevedore:it-" + containerPrefix
 
 	// Register cleanup in reverse order of creation
-	t.Cleanup(func() { _ = os.RemoveAll(stateDir) })
 	t.Cleanup(func() { docker.removeImage(stevedoreImageTag) })
 	t.Cleanup(func() { docker.stopAndRemoveContainer(stevedoreContainerName) })
 	t.Cleanup(func() { docker.removeImage(imageTag) })
@@ -103,22 +128,29 @@ func NewTestContainer(t testing.TB, dockerfile string) *TestContainer {
 		filepath.Dir(dockerfilePath),
 	)
 
+	// Build docker run arguments based on options
+	runArgs := []string{"run", "-d", "--name", containerName}
+	if opts.MountDockerSocket {
+		runArgs = append(runArgs, "-v", "/var/run/docker.sock:/var/run/docker.sock")
+	}
+	if opts.MountRepoRoot {
+		runArgs = append(runArgs, "-v", repoRoot+":/tmp/stevedore-src:ro")
+	}
+	if opts.CreateStateDir && stateDir != "" {
+		runArgs = append(runArgs, "-v", stateDir+":"+stateDir)
+	}
+	runArgs = append(runArgs, imageTag)
+
 	// Start the container
-	docker.runOK(
-		"run",
-		"-d",
-		"--name", containerName,
-		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-		"-v", repoRoot+":/tmp/stevedore-src:ro",
-		"-v", stateDir+":"+stateDir,
-		imageTag,
-	)
+	output := docker.runOK(runArgs...)
+	containerID := strings.TrimSpace(output)
 
 	return &TestContainer{
 		t:                      t,
 		ctx:                    ctx,
 		r:                      r,
 		name:                   containerName,
+		containerID:            containerID,
 		docker:                 docker,
 		ImageTag:               imageTag,
 		StateDir:               stateDir,
@@ -132,6 +164,12 @@ func NewTestContainer(t testing.TB, dockerfile string) *TestContainer {
 // Name returns the container name.
 func (c *TestContainer) Name() string {
 	return c.name
+}
+
+// GetIP returns the IP address of the container.
+func (c *TestContainer) GetIP() string {
+	c.t.Helper()
+	return GetContainerIP(c.t, c.r, c.ctx, c.containerID)
 }
 
 // Exec runs a command inside the container.
