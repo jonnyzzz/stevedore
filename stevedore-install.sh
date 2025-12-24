@@ -175,6 +175,7 @@ write_container_env() {
 STEVEDORE_ROOT=/opt/stevedore
 STEVEDORE_DB_KEY_FILE=/opt/stevedore/system/db.key
 STEVEDORE_ADMIN_KEY_FILE=/opt/stevedore/system/admin.key
+STEVEDORE_CONTAINER_NAME=${STEVEDORE_CONTAINER_NAME}
 STEVEDORE_SOURCE_REPO=${git_repo}
 STEVEDORE_SOURCE_REF=${git_branch}
 EOF
