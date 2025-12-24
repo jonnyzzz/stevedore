@@ -74,12 +74,11 @@ Full deployment lifecycle support:
    - Displays the public key and GitHub deploy key URL (for GitHub repos)
    - User registers the key, then continues
 
-2. **Git sync** (`stevedore deploy sync`) — worker container
-   - Spawns a dedicated Docker container (`alpine/git`) for Git operations (isolation)
-   - Clones/fetches the repository using the generated SSH key
+2. **Git sync** (`stevedore deploy sync`) — local git (worker container path exists)
+   - Current default: uses the git binary inside the Stevedore container with the generated SSH key
    - Stores checkout under `deployments/<name>/repo/git/`
    - Returns commit hash and branch info
-   - Implementation: `internal/stevedore/git_worker.go`
+   - Worker-container implementation exists in `internal/stevedore/git_worker.go` (not the default path yet)
 
 3. **Compose deployment** (`stevedore deploy up/down`)
    - Searches for entrypoint files (in order):
@@ -233,7 +232,7 @@ React-based web dashboard:
 ## Milestone 2 — Git sync loop (Community)
 
 - Poll interval + scheduler.
-- Run Git operations in a dedicated worker container (isolation).
+- Current default runs git operations inside the Stevedore container; worker-container isolation exists but is not the default path yet.
 - Use the generated deploy key for SSH Git access (read-only).
 - v4 hardening: store private keys encrypted in the DB and forward via SSH agent (no key files on disk).
 - Persist last-seen revision and sync status in the state directory.

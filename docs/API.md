@@ -38,7 +38,8 @@ Unauthenticated health probe for systemd or load balancer health checks.
 ```json
 {
   "status": "ok",
-  "version": "0.1.0 (fork@abc123def456 2025-01-15)"
+  "version": "0.7.44",
+  "build": "abc123def456789..."
 }
 ```
 

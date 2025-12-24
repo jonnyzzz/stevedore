@@ -71,7 +71,7 @@ Community (implemented):
 - **State on disk** — Everything under a single host directory (`/opt/stevedore` by default)
 - **Repo onboarding** — Generates an SSH deploy key per repository with GitHub URL suggestion
 - **Parameters store** — SQLCipher-encrypted SQLite database + install-generated key
-- **Git sync** — Worker container pattern for isolated Git operations (`stevedore deploy sync`)
+- **Git sync** — Local git sync inside the Stevedore container with optional cleanup (`stevedore deploy sync`); worker-container isolation is planned
 - **Compose deployment** — Deploy via Docker Compose with health monitoring (`stevedore deploy up/down`)
 - **Status + health** — Container health monitoring (`stevedore status`)
 - **Upstream main warning** — Warns if installed from `jonnyzzz/stevedore` `main`

@@ -38,8 +38,7 @@ forward-looking; not everything here is implemented yet.
 Stevedore avoids running "mutable" or potentially risky operations in the long-running daemon
 container when feasible.
 
-- **Git worker** (implemented): clone/poll repositories inside a short-lived `alpine/git` container.
-  - See `internal/stevedore/git_worker.go`
+- **Git worker** (available, not default): worker-container implementation exists in `internal/stevedore/git_worker.go`, but current sync/check paths use the git binary inside the Stevedore container (`GitSyncClean`, `GitCheckRemote`).
   - Uses deployment SSH key for authentication
   - Mounts state directory for checkout storage
   - Labels: `com.stevedore.managed=true`, `com.stevedore.role=git-worker`

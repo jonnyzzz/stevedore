@@ -135,8 +135,11 @@ Located in `tests/integration/testdata/simple-app/`:
 The integration test package (`tests/integration/`) now contains:
 
 1. **TestInstaller_UbuntuDonorContainer**: Installer, CLI, DB encryption
-2. **TestDeploymentWorkflow**: Full deployment lifecycle with Git server
-3. **TestGitServer_Basic**: Git server helper validation
+2. **TestInstaller_SelfBootstrap**: Self-bootstrap flow with Git server
+3. **TestDeploymentWorkflow**: Full deployment lifecycle with Git server
+4. **TestMonitoringWorkflow**: Git check + sync-clean behavior
+5. **TestGitServer_Basic**: Git server helper validation
+6. **TestSelfUpgrade**: Self-update workflow (skips on macOS)
 
 ## Running Locally
 
