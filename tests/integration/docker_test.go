@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -73,7 +71,7 @@ func NewTestContainer(t testing.TB, dockerfile string) *TestContainer {
 	imageTag := prefix + ":" + runID
 
 	repoRoot := testRepoRoot(t)
-	dockerfilePath := filepath.Join(repoRoot, "tests", "integration", dockerfile)
+	dockerfilePath := filepath.Join(repoRoot, "tests", "integration", "testdata", dockerfile)
 
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 		t.Fatalf("Dockerfile not found: %s", dockerfilePath)

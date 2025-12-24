@@ -7,7 +7,7 @@ test:
 	go test ./...
 
 test-integration:
-	go test -tags=integration ./tests/integration -v -count=1
+	go test ./tests/integration -v -count=1
 
 docker-build:
 	docker build -t stevedore:local .

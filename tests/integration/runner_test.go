@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -73,7 +71,7 @@ func (r *Runner) Exec(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 		prefix += " "
 	}
 
-	fmt.Fprintf(r.out, "%s$ %s\n", prefix, formatCommand(spec.Cmd, spec.Args))
+	_, _ = fmt.Fprintf(r.out, "%s$ %s\n", prefix, formatCommand(spec.Cmd, spec.Args))
 
 	if err := cmd.Start(); err != nil {
 		return ExecResult{}, err
@@ -86,7 +84,7 @@ func (r *Runner) Exec(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 	wg.Add(2)
 
 	streamLine := func(marker string, line string) {
-		fmt.Fprintf(r.out, "%s%s %s\n", prefix, marker, line)
+		_, _ = fmt.Fprintf(r.out, "%s%s %s\n", prefix, marker, line)
 		mu.Lock()
 		combined.WriteString(line)
 		combined.WriteByte('\n')
