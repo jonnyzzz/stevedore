@@ -44,3 +44,6 @@ __pycache__/
 
 # Generated DB for IDE tooling (run: go test -run TestGenerateDBForTooling -v ./internal/stevedore/)
 .db/
+
+
+stevedore
