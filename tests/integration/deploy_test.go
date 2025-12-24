@@ -64,11 +64,16 @@ func TestDeploymentWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read docker-compose.yaml: %v", err)
 	}
+	serverPy, err := os.ReadFile(filepath.Join(testdataDir, "server.py"))
+	if err != nil {
+		t.Fatalf("failed to read server.py: %v", err)
+	}
 
 	// Initialize repo with files using local file protocol (no SSH needed)
 	err = gs.InitRepoWithContent(deploymentName, map[string]string{
 		"Dockerfile":          string(dockerfile),
 		"docker-compose.yaml": string(compose),
+		"server.py":           string(serverPy),
 		"version.txt":         fmt.Sprintf("v1.0.0-%d", time.Now().Unix()),
 	})
 	if err != nil {

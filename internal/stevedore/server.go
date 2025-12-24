@@ -12,11 +12,21 @@ import (
 	"time"
 )
 
+// HTTP headers for version verification between CLI and daemon
+const (
+	HeaderStevedoreVersion = "X-Stevedore-Version"
+	HeaderStevedoreBuild   = "X-Stevedore-Build"
+)
+
 // ServerConfig holds configuration for the HTTP server.
 type ServerConfig struct {
 	AdminKey   string
 	ListenAddr string
 }
+
+// CommandExecutor executes CLI commands inside the daemon process.
+// This is set by main.go to provide access to the full CLI functionality.
+type CommandExecutor func(args []string) (output string, exitCode int, err error)
 
 // Server provides the HTTP API for Stevedore.
 type Server struct {
@@ -25,10 +35,12 @@ type Server struct {
 	config   ServerConfig
 	server   *http.Server
 	version  string
+	build    string          // Git commit or build hash for strict version matching
+	executor CommandExecutor // Executes CLI commands
 }
 
 // NewServer creates a new HTTP server instance.
-func NewServer(instance *Instance, db *sql.DB, config ServerConfig, version string) *Server {
+func NewServer(instance *Instance, db *sql.DB, config ServerConfig, version, build string) *Server {
 	if config.ListenAddr == "" {
 		config.ListenAddr = ":42107"
 	}
@@ -38,6 +50,7 @@ func NewServer(instance *Instance, db *sql.DB, config ServerConfig, version stri
 		db:       db,
 		config:   config,
 		version:  version,
+		build:    build,
 	}
 
 	mux := http.NewServeMux()
@@ -45,11 +58,13 @@ func NewServer(instance *Instance, db *sql.DB, config ServerConfig, version stri
 	// Health endpoint - unauthenticated
 	mux.HandleFunc("/healthz", s.handleHealthz)
 
-	// API endpoints - authenticated
-	mux.HandleFunc("/api/status", s.requireAuth(s.handleAPIStatus))
-	mux.HandleFunc("/api/status/", s.requireAuth(s.handleAPIStatusDeployment))
-	mux.HandleFunc("/api/sync/", s.requireAuth(s.handleAPISync))
-	mux.HandleFunc("/api/deploy/", s.requireAuth(s.handleAPIDeploy))
+	// API endpoints - authenticated with version verification
+	mux.HandleFunc("/api/status", s.requireAuth(s.requireVersion(s.handleAPIStatus)))
+	mux.HandleFunc("/api/status/", s.requireAuth(s.requireVersion(s.handleAPIStatusDeployment)))
+	mux.HandleFunc("/api/sync/", s.requireAuth(s.requireVersion(s.handleAPISync)))
+	mux.HandleFunc("/api/deploy/", s.requireAuth(s.requireVersion(s.handleAPIDeploy)))
+	mux.HandleFunc("/api/check/", s.requireAuth(s.requireVersion(s.handleAPICheck)))
+	mux.HandleFunc("/api/exec", s.requireAuth(s.requireVersion(s.handleAPIExec)))
 
 	s.server = &http.Server{
 		Addr:         config.ListenAddr,
@@ -60,6 +75,11 @@ func NewServer(instance *Instance, db *sql.DB, config ServerConfig, version stri
 	}
 
 	return s
+}
+
+// SetExecutor sets the command executor for the /api/exec endpoint.
+func (s *Server) SetExecutor(executor CommandExecutor) {
+	s.executor = executor
 }
 
 // Start starts the HTTP server in a goroutine.
@@ -102,6 +122,36 @@ func (s *Server) requireAuth(handler http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// requireVersion wraps a handler with version verification.
+// Stevedore binaries must match exactly - this prevents subtle bugs from version mismatches.
+func (s *Server) requireVersion(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		clientVersion := r.Header.Get(HeaderStevedoreVersion)
+		clientBuild := r.Header.Get(HeaderStevedoreBuild)
+
+		// If client doesn't send version headers, reject the request
+		if clientVersion == "" || clientBuild == "" {
+			s.jsonError(w, http.StatusBadRequest, fmt.Sprintf(
+				"missing version headers (expected %s and %s). "+
+					"Are you using the correct stevedore binary? Run 'stevedore doctor' to diagnose.",
+				HeaderStevedoreVersion, HeaderStevedoreBuild))
+			return
+		}
+
+		// Strict version matching - binaries must be identical
+		if clientVersion != s.version || clientBuild != s.build {
+			s.jsonError(w, http.StatusConflict, fmt.Sprintf(
+				"version mismatch: client=%s/%s, daemon=%s/%s. "+
+					"Stevedore binaries must match exactly. "+
+					"Run 'stevedore doctor' to diagnose or reinstall stevedore.",
+				clientVersion, clientBuild, s.version, s.build))
+			return
+		}
+
+		handler(w, r)
+	}
+}
+
 // handleHealthz handles the health check endpoint.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -112,6 +162,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	response := map[string]interface{}{
 		"status":  "ok",
 		"version": s.version,
+		"build":   s.build,
 	}
 
 	s.jsonResponse(w, http.StatusOK, response)
@@ -322,6 +373,90 @@ func (s *Server) handleAPIDeploy(w http.ResponseWriter, r *http.Request) {
 		"services":    result.Services,
 		"deployed":    true,
 	})
+}
+
+// handleAPICheck handles POST /api/check/{name} - check for updates without modifying files.
+// This performs a git fetch only and compares commits, safe to call while deployment is running.
+func (s *Server) handleAPICheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	deployment := strings.TrimPrefix(r.URL.Path, "/api/check/")
+	if deployment == "" {
+		s.jsonError(w, http.StatusBadRequest, "missing deployment name")
+		return
+	}
+
+	if err := ValidateDeploymentName(deployment); err != nil {
+		s.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	ctx := r.Context()
+
+	log.Printf("API: checking for updates for %s", deployment)
+
+	result, err := s.instance.GitCheckRemote(ctx, deployment)
+	if err != nil {
+		s.jsonError(w, http.StatusInternalServerError, fmt.Sprintf("check failed: %v", err))
+		return
+	}
+
+	s.jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"deployment":    deployment,
+		"currentCommit": result.CurrentCommit,
+		"remoteCommit":  result.RemoteCommit,
+		"hasChanges":    result.HasChanges,
+		"branch":        result.Branch,
+	})
+}
+
+// ExecRequest represents a request to execute a command.
+type ExecRequest struct {
+	Args []string `json:"args"`
+}
+
+// ExecResponse represents the response from command execution.
+type ExecResponse struct {
+	Output   string `json:"output"`
+	ExitCode int    `json:"exitCode"`
+	Error    string `json:"error,omitempty"`
+}
+
+// handleAPIExec handles POST /api/exec - execute a CLI command inside the daemon.
+// This allows the CLI to delegate commands to the daemon process.
+func (s *Server) handleAPIExec(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.executor == nil {
+		s.jsonError(w, http.StatusServiceUnavailable, "command executor not configured")
+		return
+	}
+
+	var req ExecRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, http.StatusBadRequest, fmt.Sprintf("invalid request: %v", err))
+		return
+	}
+
+	log.Printf("API: executing command: %v", req.Args)
+
+	output, exitCode, err := s.executor(req.Args)
+
+	resp := ExecResponse{
+		Output:   output,
+		ExitCode: exitCode,
+	}
+	if err != nil {
+		resp.Error = err.Error()
+	}
+
+	s.jsonResponse(w, http.StatusOK, resp)
 }
 
 // jsonResponse writes a JSON response with the given status code.

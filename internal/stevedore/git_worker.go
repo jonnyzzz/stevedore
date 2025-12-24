@@ -35,6 +35,21 @@ type GitCloneResult struct {
 	Commit string
 	// Branch that was checked out
 	Branch string
+	// RemovedFiles lists files that were removed during a clean sync
+	RemovedFiles []string
+}
+
+// GitCheckResult holds the result of a git check operation.
+// This is returned by GitCheckRemote which checks for updates without modifying files.
+type GitCheckResult struct {
+	// CurrentCommit is the commit SHA currently checked out on disk
+	CurrentCommit string
+	// RemoteCommit is the commit SHA on the remote branch
+	RemoteCommit string
+	// HasChanges is true if the remote has new commits
+	HasChanges bool
+	// Branch is the branch being tracked
+	Branch string
 }
 
 // gitRepoSetup holds the resolved paths and metadata for a git operation.
@@ -286,5 +301,173 @@ func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCl
 	return &GitCloneResult{
 		Commit: strings.TrimSpace(string(commitOut)),
 		Branch: setup.branch,
+	}, nil
+}
+
+// GitCheckRemote performs a git fetch to check for updates without modifying the working directory.
+// This is safe to call while the deployment is running as it only updates refs, not files.
+func (i *Instance) GitCheckRemote(ctx context.Context, deployment string) (*GitCheckResult, error) {
+	setup, err := i.prepareGitRepo(deployment)
+	if err != nil {
+		return nil, err
+	}
+
+	// If repo doesn't exist yet, there's no current commit
+	if setup.isClone {
+		return &GitCheckResult{
+			CurrentCommit: "",
+			RemoteCommit:  "", // Would need to clone to get this
+			HasChanges:    true,
+			Branch:        setup.branch,
+		}, nil
+	}
+
+	// Set up SSH command environment
+	sshCommand := fmt.Sprintf("ssh -o StrictHostKeyChecking=accept-new -i %s", setup.privateKeyPath)
+
+	// Get current HEAD commit
+	currentCommitCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
+	currentCommitOut, err := currentCommitCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current commit: %w", err)
+	}
+	currentCommit := strings.TrimSpace(string(currentCommitOut))
+
+	// Fetch from remote (this only updates refs, not working directory)
+	fetchCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
+	fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
+	var fetchStderr bytes.Buffer
+	fetchCmd.Stderr = &fetchStderr
+	if err := fetchCmd.Run(); err != nil {
+		return nil, fmt.Errorf("git fetch failed: %w: %s", err, strings.TrimSpace(fetchStderr.String()))
+	}
+
+	// Get FETCH_HEAD commit (what we just fetched)
+	remoteCommitCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "rev-parse", "FETCH_HEAD")
+	remoteCommitOut, err := remoteCommitCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get remote commit: %w", err)
+	}
+	remoteCommit := strings.TrimSpace(string(remoteCommitOut))
+
+	return &GitCheckResult{
+		CurrentCommit: currentCommit,
+		RemoteCommit:  remoteCommit,
+		HasChanges:    currentCommit != remoteCommit,
+		Branch:        setup.branch,
+	}, nil
+}
+
+// GitSyncClean performs a git sync and removes stale files that are no longer tracked.
+// It logs all removed files and returns them in the result.
+func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEnabled bool) (*GitCloneResult, error) {
+	setup, err := i.prepareGitRepo(deployment)
+	if err != nil {
+		return nil, err
+	}
+
+	sshCommand := fmt.Sprintf("ssh -o StrictHostKeyChecking=accept-new -i %s", setup.privateKeyPath)
+
+	var removedFiles []string
+
+	if setup.isClone {
+		// Clone the repository
+		cmd := exec.CommandContext(ctx, "git", "clone", "--branch", setup.branch, "--depth", "1", "--single-branch", setup.repoURL, setup.gitDir)
+		cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("git clone failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+	} else {
+		// Get list of tracked files before update (for stale file detection)
+		var filesBefore map[string]bool
+		if cleanEnabled {
+			filesBefore = make(map[string]bool)
+			lsCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "ls-tree", "-r", "--name-only", "HEAD")
+			lsOut, err := lsCmd.Output()
+			if err == nil {
+				for _, f := range strings.Split(strings.TrimSpace(string(lsOut)), "\n") {
+					if f != "" {
+						filesBefore[f] = true
+					}
+				}
+			}
+		}
+
+		// Fetch
+		fetchCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
+		fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
+		var fetchStderr bytes.Buffer
+		fetchCmd.Stderr = &fetchStderr
+		if err := fetchCmd.Run(); err != nil {
+			return nil, fmt.Errorf("git fetch failed: %w: %s", err, strings.TrimSpace(fetchStderr.String()))
+		}
+
+		// Hard reset to discard any local changes
+		resetCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "reset", "--hard", "FETCH_HEAD")
+		var resetStderr bytes.Buffer
+		resetCmd.Stderr = &resetStderr
+		if err := resetCmd.Run(); err != nil {
+			return nil, fmt.Errorf("git reset failed: %w: %s", err, strings.TrimSpace(resetStderr.String()))
+		}
+
+		if cleanEnabled {
+			// Get list of tracked files after update
+			filesAfter := make(map[string]bool)
+			lsCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "ls-tree", "-r", "--name-only", "HEAD")
+			lsOut, err := lsCmd.Output()
+			if err == nil {
+				for _, f := range strings.Split(strings.TrimSpace(string(lsOut)), "\n") {
+					if f != "" {
+						filesAfter[f] = true
+					}
+				}
+			}
+
+			// Find and remove stale files (were tracked before but not after)
+			for f := range filesBefore {
+				if !filesAfter[f] {
+					filePath := filepath.Join(setup.gitDir, f)
+					if _, err := os.Stat(filePath); err == nil {
+						if err := os.Remove(filePath); err != nil {
+							// Log but don't fail on removal errors
+							fmt.Printf("Warning: failed to remove stale file %s: %v\n", f, err)
+						} else {
+							removedFiles = append(removedFiles, f)
+							fmt.Printf("Removed stale file: %s\n", f)
+						}
+					}
+				}
+			}
+
+			// Also clean untracked files
+			cleanCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "clean", "-fd")
+			var cleanOutput bytes.Buffer
+			cleanCmd.Stdout = &cleanOutput
+			if err := cleanCmd.Run(); err == nil {
+				// Parse clean output to log removed files
+				for _, line := range strings.Split(cleanOutput.String(), "\n") {
+					if strings.HasPrefix(line, "Removing ") {
+						f := strings.TrimPrefix(line, "Removing ")
+						removedFiles = append(removedFiles, f)
+						fmt.Printf("Removed untracked: %s\n", f)
+					}
+				}
+			}
+		}
+	}
+
+	// Get commit SHA
+	commitCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
+	commitOut, err := commitCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	return &GitCloneResult{
+		Commit:       strings.TrimSpace(string(commitOut)),
+		Branch:       setup.branch,
+		RemovedFiles: removedFiles,
 	}, nil
 }

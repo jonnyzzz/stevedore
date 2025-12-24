@@ -25,7 +25,7 @@ func TestHealthz_ReturnsOK(t *testing.T) {
 	server := NewServer(instance, db, ServerConfig{
 		AdminKey:   "test-admin-key",
 		ListenAddr: ":0",
-	}, "1.0.0-test")
+	}, "1.0.0-test", "test-build")
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	w := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestHealthz_MethodNotAllowed(t *testing.T) {
 
 	server := NewServer(instance, db, ServerConfig{
 		AdminKey: "test-admin-key",
-	}, "1.0.0")
+	}, "1.0.0", "test-build")
 
 	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
 	w := httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestRequireAuth_ValidKey(t *testing.T) {
 
 	server := NewServer(instance, db, ServerConfig{
 		AdminKey: "secret-admin-key",
-	}, "1.0.0")
+	}, "1.0.0", "test-build")
 
 	handlerCalled := false
 	handler := server.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +135,7 @@ func TestRequireAuth_InvalidKey(t *testing.T) {
 
 	server := NewServer(instance, db, ServerConfig{
 		AdminKey: "secret-admin-key",
-	}, "1.0.0")
+	}, "1.0.0", "test-build")
 
 	handlerCalled := false
 	handler := server.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +174,7 @@ func TestRequireAuth_MissingHeader(t *testing.T) {
 
 	server := NewServer(instance, db, ServerConfig{
 		AdminKey: "secret-admin-key",
-	}, "1.0.0")
+	}, "1.0.0", "test-build")
 
 	handler := server.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -208,7 +208,7 @@ func TestRequireAuth_WrongFormat(t *testing.T) {
 
 	server := NewServer(instance, db, ServerConfig{
 		AdminKey: "secret-admin-key",
-	}, "1.0.0")
+	}, "1.0.0", "test-build")
 
 	handler := server.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -242,7 +242,7 @@ func TestAPIStatus_ListsDeployments(t *testing.T) {
 
 	server := NewServer(instance, db, ServerConfig{
 		AdminKey: "test-admin-key",
-	}, "1.0.0")
+	}, "1.0.0", "test-build")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	w := httptest.NewRecorder()

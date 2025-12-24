@@ -10,11 +10,12 @@ import (
 
 // DaemonConfig holds configuration for the daemon.
 type DaemonConfig struct {
-	AdminKey     string
-	ListenAddr   string
-	Version      string
-	MinPollTime  time.Duration // Minimum time between poll cycles (default: 30s)
-	SyncTimeout  time.Duration // Timeout for sync operations (default: 5m)
+	AdminKey      string
+	ListenAddr    string
+	Version       string
+	Build         string        // Git commit or build hash for strict version matching
+	MinPollTime   time.Duration // Minimum time between poll cycles (default: 30s)
+	SyncTimeout   time.Duration // Timeout for sync operations (default: 5m)
 	DeployTimeout time.Duration // Timeout for deploy operations (default: 10m)
 }
 
@@ -53,7 +54,7 @@ func NewDaemon(instance *Instance, db *sql.DB, config DaemonConfig) *Daemon {
 	d.server = NewServer(instance, db, ServerConfig{
 		AdminKey:   config.AdminKey,
 		ListenAddr: config.ListenAddr,
-	}, config.Version)
+	}, config.Version, config.Build)
 
 	return d
 }
@@ -150,52 +151,59 @@ func (d *Daemon) setSyncing(deployment string, syncing bool) {
 	}
 }
 
-// syncDeployment performs sync and optional deploy for a single deployment.
+// syncDeployment performs check, sync, and optional deploy for a single deployment.
+// It first checks for updates using git fetch only (safe while deployment runs),
+// then syncs and deploys only if changes are detected.
 func (d *Daemon) syncDeployment(parentCtx context.Context, deployment string) {
 	d.setSyncing(deployment, true)
 	defer d.setSyncing(deployment, false)
 
-	log.Printf("Syncing deployment: %s", deployment)
+	log.Printf("Checking for updates: %s", deployment)
 
-	// Get current sync status to compare commits
-	syncStatus, err := d.instance.GetSyncStatus(d.db, deployment)
+	// Step 1: Check for updates using git fetch only (doesn't modify working directory)
+	checkCtx, checkCancel := context.WithTimeout(parentCtx, d.config.SyncTimeout)
+	defer checkCancel()
+
+	checkResult, err := d.instance.GitCheckRemote(checkCtx, deployment)
 	if err != nil {
-		log.Printf("Error getting sync status for %s: %v", deployment, err)
-	}
-	previousCommit := ""
-	if syncStatus != nil {
-		previousCommit = syncStatus.LastCommit
+		log.Printf("Check failed for %s: %v", deployment, err)
+		_ = d.instance.UpdateSyncError(d.db, deployment, err)
+		return
 	}
 
-	// Sync with timeout
+	// Update sync status with check time (even if no changes)
+	if err := d.instance.UpdateSyncStatus(d.db, deployment, checkResult.CurrentCommit); err != nil {
+		log.Printf("Warning: failed to update sync status for %s: %v", deployment, err)
+	}
+
+	if !checkResult.HasChanges {
+		log.Printf("No updates for %s: %s@%s", deployment, checkResult.Branch, shortCommit(checkResult.CurrentCommit))
+		return
+	}
+
+	// Step 2: Changes detected - sync the repository (with stale file cleanup)
+	log.Printf("Updates available for %s (current: %s, remote: %s), syncing...",
+		deployment, shortCommit(checkResult.CurrentCommit), shortCommit(checkResult.RemoteCommit))
+
 	syncCtx, syncCancel := context.WithTimeout(parentCtx, d.config.SyncTimeout)
 	defer syncCancel()
 
-	result, err := d.instance.GitCloneLocal(syncCtx, deployment)
+	// Use GitSyncClean to sync with stale file removal enabled by default
+	result, err := d.instance.GitSyncClean(syncCtx, deployment, true)
 	if err != nil {
 		log.Printf("Sync failed for %s: %v", deployment, err)
 		_ = d.instance.UpdateSyncError(d.db, deployment, err)
 		return
 	}
 
-	// Update sync status
+	// Update sync status with new commit
 	if err := d.instance.UpdateSyncStatus(d.db, deployment, result.Commit); err != nil {
 		log.Printf("Warning: failed to update sync status for %s: %v", deployment, err)
 	}
 
 	log.Printf("Synced %s: %s@%s", deployment, result.Branch, shortCommit(result.Commit))
 
-	// Check if commit changed
-	if previousCommit != "" && previousCommit == result.Commit {
-		// No change, skip deploy
-		return
-	}
-
-	// New commit detected, deploy
-	log.Printf("New commit detected for %s (was: %s, now: %s), deploying...",
-		deployment, shortCommit(previousCommit), shortCommit(result.Commit))
-
-	// Check for self-update
+	// Step 3: Deploy if this is not a self-update
 	if deployment == "stevedore" {
 		log.Printf("Self-update detected for stevedore deployment - skipping auto-deploy")
 		log.Printf("Run self-update manually or restart the daemon to apply changes")
@@ -238,4 +246,9 @@ func (d *Daemon) TriggerSync(ctx context.Context, deployment string) error {
 
 	go d.syncDeployment(ctx, deployment)
 	return nil
+}
+
+// SetExecutor sets the command executor for the HTTP API /api/exec endpoint.
+func (d *Daemon) SetExecutor(executor CommandExecutor) {
+	d.server.SetExecutor(executor)
 }
