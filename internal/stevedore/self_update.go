@@ -196,7 +196,6 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	}
 
 	// Host paths (for docker run command which runs on the host)
-	hostEnvFile := hostRoot + "/system/container.env"
 	hostSystemDir := hostRoot + "/system"
 
 	// Create the update script
@@ -204,6 +203,8 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	//   hostSystemDir -> /worker-data (read-write)
 	// The script should use /worker-data for files it needs to access,
 	// but use host paths for the docker run command.
+	// NOTE: We read the env file inside the worker and pass individual -e flags
+	// instead of using --env-file, to avoid host path resolution issues.
 	updateScript := fmt.Sprintf(`#!/bin/sh
 LOG_FILE="/worker-data/update.log"
 
@@ -237,7 +238,7 @@ else
   log "Warning: rm failed (may already be removed)"
 fi
 
-# Verify env file exists on host
+# Verify env file exists
 if [ ! -f "/worker-data/container.env" ]; then
   log "ERROR: container.env not found in /worker-data"
   log "Contents of /worker-data:"
@@ -245,12 +246,25 @@ if [ ! -f "/worker-data/container.env" ]; then
   exit 1
 fi
 
+# Read env file and build -e flags
+# This avoids host path resolution issues with --env-file
+ENV_ARGS=""
+while IFS= read -r line || [ -n "$line" ]; do
+  # Skip empty lines and comments
+  case "$line" in
+    ""|\#*) continue ;;
+  esac
+  ENV_ARGS="$ENV_ARGS -e $line"
+done < /worker-data/container.env
+
+log "Environment variables loaded"
+
 # Start new container
 log "Starting new container with image %s..."
 if docker run -d \
   --name "%s" \
   --restart "%s" \
-  --env-file "%s" \
+  $ENV_ARGS \
   -p 42107:42107 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "%s:/opt/stevedore" \
@@ -267,7 +281,7 @@ log "Update complete!"
 		containerName, newImageTag, hostRoot, restartPolicy,
 		containerName, containerName,
 		containerName,
-		newImageTag, containerName, restartPolicy, hostEnvFile, hostRoot, newImageTag)
+		newImageTag, containerName, restartPolicy, hostRoot, newImageTag)
 
 	// Write the update script to our system directory
 	// The worker will mount this directory and read the script

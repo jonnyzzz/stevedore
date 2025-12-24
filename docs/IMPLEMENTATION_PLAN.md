@@ -104,12 +104,17 @@ Full deployment lifecycle support:
 | `stevedore deploy up <name>` | Deploy using docker compose up |
 | `stevedore deploy down <name>` | Stop deployment using docker compose down |
 | `stevedore status [name]` | Show deployment status and container health |
+| `stevedore check [name]` | Check for updates (git fetch only) |
+| `stevedore self-update` | Trigger self-update (sync, build, restart) |
 
 ### v0-2 Integration Tests
 
-- Full deployment workflow test created (`tests/integration/deploy_test.go`)
-- Currently skipped in CI due to SSH git server complexity
-- TODO: Simplify test to work reliably in GitHub Actions
+- Full deployment workflow test: `tests/integration/deploy_test.go`
+- Uses reusable `GitServer` helper (`tests/integration/git_server_test.go`)
+- SSH Git server sidecar pattern for realistic Git operations
+- Self-upgrade test: `tests/integration/selfupgrade_test.go`
+  - Tests complete self-update workflow including workload container survival
+- All tests run in GitHub Actions CI
 
 ---
 
@@ -136,10 +141,16 @@ Automated polling and HTTP API:
    - Bearer token authentication: `Authorization: Bearer <admin-key>`
 
 3. **Self-update workflow** (`internal/stevedore/self_update.go`)
-   - Detect changes in the `stevedore` deployment
-   - Build new Stevedore image from checkout
-   - Spawn update worker container to replace running Stevedore
+   - CLI: `stevedore self-update` triggers manual self-update
+   - Daemon detects changes in the `stevedore` deployment
+   - Workflow:
+     1. Sync the stevedore deployment to get latest changes
+     2. Build new image with the same tag as current
+     3. Create backup image tag for rollback (e.g., `stevedore:backup-<timestamp>`)
+     4. Spawn update worker container (`docker:cli`)
+     5. Worker stops/removes current container, starts new one
    - Workload containers are NOT stopped during update
+   - Update worker logs to `/opt/stevedore/system/update.log` for debugging
 
 4. **Database migrations** (v2, v3)
    - `sync_status` table: tracks last_commit, last_sync_at, last_deploy_at, last_error

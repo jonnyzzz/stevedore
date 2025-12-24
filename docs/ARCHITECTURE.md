@@ -84,14 +84,51 @@ Automated polling cycle:
 Self-update is special because Stevedore cannot reliably replace itself from inside the container
 that is being replaced.
 
-Implementation (`internal/stevedore/self_update.go`):
+### CLI
 
-1. Detect Stevedore repo update via polling.
-2. Build the new Stevedore image from the checkout.
-3. Start an **update worker** container that:
+```bash
+stevedore check stevedore    # Check if updates are available
+stevedore self-update        # Trigger self-update
+```
+
+### Implementation (`internal/stevedore/self_update.go`)
+
+1. **Sync** the stevedore deployment to get latest changes from Git.
+2. **Build** new image with the same tag as current container (e.g., `stevedore:latest`).
+3. **Backup** the current image with a timestamped tag for rollback (e.g., `stevedore:backup-1703456789`).
+4. **Spawn update worker** (`docker:cli` container) that:
    - Stops the current `stevedore` container
+   - Removes the old container
    - Starts a new `stevedore` container from the new image
-4. Workloads (deployment containers) are not stopped; only the Stevedore control-plane is replaced.
+5. Workloads (deployment containers) are NOT stopped during the update.
+
+### Update Worker Details
+
+The update worker is a short-lived `docker:cli` container that:
+- Mounts the Docker socket for docker commands
+- Mounts the system directory for reading the update script and env file
+- Logs to `/opt/stevedore/system/update.log` for debugging
+- Uses `--rm` to auto-remove after completion
+- Labeled with `com.stevedore.role=update-worker`
+
+### Why Not Just Exit and Restart?
+
+Docker's restart policy (e.g., `--restart unless-stopped`) uses the same image ID that the
+container was originally created with. It does NOT re-pull the tag. So even if we build a new
+image with the same tag and exit, Docker restarts with the OLD image.
+
+With systemd (`stevedore.service`), the service runs `docker run` on restart, which DOES look up
+the tag and use the latest image. However, we use the update worker approach for consistency
+across both systemd and non-systemd environments.
+
+### Rollback
+
+If the new image has problems, manual rollback is possible:
+```bash
+docker stop stevedore
+docker rm stevedore
+docker run -d --name stevedore ... stevedore:backup-<timestamp>
+```
 
 ## Health + Restart Semantics
 
