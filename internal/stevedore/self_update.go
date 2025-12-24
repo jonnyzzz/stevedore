@@ -15,9 +15,8 @@ import (
 // SelfUpdateConfig holds configuration for self-update.
 type SelfUpdateConfig struct {
 	ContainerName string        // Name of the running stevedore container
-	ImageTag      string        // Tag for the new image
+	ImageTag      string        // Tag for the new image (if empty, uses current container's image)
 	BuildTimeout  time.Duration // Timeout for image build (default: 15m)
-	UpdateTimeout time.Duration // Timeout for update operation (default: 5m)
 }
 
 // SelfUpdate handles updating the stevedore container itself.
@@ -36,9 +35,6 @@ func NewSelfUpdate(instance *Instance, config SelfUpdateConfig) *SelfUpdate {
 	}
 	if config.BuildTimeout == 0 {
 		config.BuildTimeout = 15 * time.Minute
-	}
-	if config.UpdateTimeout == 0 {
-		config.UpdateTimeout = 5 * time.Minute
 	}
 
 	return &SelfUpdate{
@@ -83,7 +79,36 @@ func (s *SelfUpdate) NeedsSelfUpdate(ctx context.Context, currentCommit string) 
 	return needsUpdate, newCommit, nil
 }
 
+// getCurrentImageTag gets the image tag of the currently running stevedore container.
+func (s *SelfUpdate) getCurrentImageTag(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Config.Image}}", s.config.ContainerName)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("inspect container image: %w", err)
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+// tagImageAsBackup tags the current image with a backup tag for rollback.
+func (s *SelfUpdate) tagImageAsBackup(ctx context.Context, currentImage string) (string, error) {
+	// Parse the image name to create a backup tag
+	parts := strings.Split(currentImage, ":")
+	baseName := parts[0]
+	backupTag := fmt.Sprintf("%s:backup-%d", baseName, time.Now().Unix())
+
+	cmd := exec.CommandContext(ctx, "docker", "tag", currentImage, backupTag)
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("tag backup image: %w", err)
+	}
+
+	log.Printf("Tagged current image as backup: %s", backupTag)
+	return backupTag, nil
+}
+
 // BuildNewImage builds a new stevedore image from the deployment checkout.
+// If imageTag is empty, it uses the current container's image tag so that
+// the restart policy will pick up the new image.
 func (s *SelfUpdate) BuildNewImage(ctx context.Context) (string, error) {
 	deployment := "stevedore"
 	gitDir := filepath.Join(s.instance.DeploymentDir(deployment), "repo", "git")
@@ -94,10 +119,27 @@ func (s *SelfUpdate) BuildNewImage(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("Dockerfile not found in stevedore checkout: %s", dockerfilePath)
 	}
 
-	// Generate image tag with timestamp
+	// Determine the image tag to use
 	imageTag := s.config.ImageTag
 	if imageTag == "" {
-		imageTag = fmt.Sprintf("stevedore:update-%d", time.Now().Unix())
+		// Use the same tag as the current container so restart picks up the new image
+		var err error
+		imageTag, err = s.getCurrentImageTag(ctx)
+		if err != nil {
+			return "", fmt.Errorf("get current image tag: %w", err)
+		}
+		if imageTag == "" {
+			imageTag = "stevedore:latest"
+		}
+	}
+
+	// Tag the current image as backup before overwriting
+	backupTag, err := s.tagImageAsBackup(ctx, imageTag)
+	if err != nil {
+		log.Printf("Warning: could not create backup tag: %v", err)
+		// Continue anyway - backup is nice to have but not critical
+	} else {
+		log.Printf("Backup image available for rollback: %s", backupTag)
 	}
 
 	log.Printf("Building new stevedore image: %s", imageTag)
@@ -119,173 +161,20 @@ func (s *SelfUpdate) BuildNewImage(ctx context.Context) (string, error) {
 	return imageTag, nil
 }
 
-// Execute performs the self-update by spawning an update worker.
-// The worker will:
-// 1. Stop the current stevedore container
-// 2. Start a new container with the new image
-// 3. Clean up the old image
+// Execute performs the self-update by exiting the current container.
+// The restart policy (systemd or Docker) will restart the container with the new image.
 //
 // NOTE: This method will cause the current process to exit!
 func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
-	containerName := s.config.ContainerName
+	log.Printf("Self-update: new image %s is ready", newImageTag)
+	log.Printf("Self-update: exiting container to trigger restart with new image")
+	log.Printf("Self-update: the restart policy (systemd or Docker) will restart the container")
 
-	log.Printf("Self-update: preparing to replace container %s with image %s", containerName, newImageTag)
+	// Signal that we're doing a planned self-update exit
+	// This could be used by monitoring to distinguish from crashes
+	os.Exit(0)
 
-	// Get the current container's mount for /opt/stevedore
-	// Format: /host/path:/opt/stevedore:rw (or ro)
-	mountsCmd := exec.CommandContext(ctx, "docker", "inspect", "--format",
-		"{{range .Mounts}}{{if eq .Destination \"/opt/stevedore\"}}{{.Source}}{{end}}{{end}}",
-		containerName)
-	var mountsOut bytes.Buffer
-	mountsCmd.Stdout = &mountsOut
-	if err := mountsCmd.Run(); err != nil {
-		return fmt.Errorf("inspect container mounts: %w", err)
-	}
-	hostRoot := strings.TrimSpace(mountsOut.String())
-	if hostRoot == "" {
-		// Fallback to default path if mount not found
-		hostRoot = "/opt/stevedore"
-	}
-	log.Printf("Self-update: using host root: %s", hostRoot)
-
-	// Get restart policy
-	policyCmd := exec.CommandContext(ctx, "docker", "inspect", "--format",
-		"{{.HostConfig.RestartPolicy.Name}}", containerName)
-	var policyOut bytes.Buffer
-	policyCmd.Stdout = &policyOut
-	if err := policyCmd.Run(); err != nil {
-		return fmt.Errorf("inspect restart policy: %w", err)
-	}
-	restartPolicy := strings.TrimSpace(policyOut.String())
-	if restartPolicy == "" {
-		restartPolicy = "unless-stopped"
-	}
-
-	// Get container env file path (on host)
-	envFilePath := filepath.Join(hostRoot, "system", "container.env")
-
-	// Create the update script that will run in a separate container
-	// Note: LOG_FILE uses the container path since the script runs inside the worker
-	updateScript := fmt.Sprintf(`#!/bin/sh
-# Do not use set -e - we want to log all errors and continue
-LOG_FILE="/stevedore-system/update.log"
-
-log() {
-  echo "$@"
-  echo "$(date '+%%Y-%%m-%%d %%H:%%M:%%S') $@" >> "$LOG_FILE" 2>/dev/null || true
-}
-
-log "Self-update worker starting..."
-log "Container name: %s"
-log "New image: %s"
-log "Host root: %s"
-log "Env file: %s"
-log "Restart policy: %s"
-
-# Wait a moment for the original container to be ready for replacement
-sleep 2
-
-# Stop the current container
-log "Stopping container: %s"
-if docker stop %s; then
-  log "Container stopped successfully"
-else
-  log "Warning: docker stop failed (may already be stopped)"
-fi
-
-# Remove the old container
-log "Removing old container..."
-if docker rm %s; then
-  log "Container removed successfully"
-else
-  log "Warning: docker rm failed (may already be removed)"
-fi
-
-# Verify env file exists in the mounted system directory
-# Use container path /stevedore-system for checking, but use host path for docker run
-ENV_FILE_CONTAINER="/stevedore-system/container.env"
-if [ ! -f "$ENV_FILE_CONTAINER" ]; then
-  log "ERROR: Env file not found at $ENV_FILE_CONTAINER"
-  log "Listing /stevedore-system:"
-  ls -la /stevedore-system >> "$LOG_FILE" 2>&1 || log "Could not list directory"
-  log "Expected host path: %s"
-  exit 1
-fi
-
-# Start new container with the same configuration
-log "Starting new container with image: %s"
-if docker run -d \
-  --name %s \
-  --restart %s \
-  --env-file %s \
-  -p 42107:42107 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v %s:/opt/stevedore \
-  %s \
-  /app/stevedore -d; then
-  log "New container started successfully"
-else
-  log "ERROR: Failed to start new container"
-  log "Docker error:"
-  docker run -d \
-    --name %s \
-    --restart %s \
-    --env-file %s \
-    -p 42107:42107 \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -v %s:/opt/stevedore \
-    %s \
-    /app/stevedore -d 2>> "$LOG_FILE" || true
-  exit 1
-fi
-
-log "Self-update complete!"
-`, containerName, newImageTag, hostRoot, envFilePath, restartPolicy,
-		containerName, containerName,
-		containerName,
-		envFilePath,
-		newImageTag, containerName, restartPolicy, envFilePath, hostRoot, newImageTag,
-		containerName, restartPolicy, envFilePath, hostRoot, newImageTag)
-
-	// Run the update worker
-	workerName := fmt.Sprintf("stevedore-update-%d", time.Now().Unix())
-
-	log.Printf("Spawning update worker: %s", workerName)
-
-	// Write script to temp file (the worker needs to access it)
-	scriptPath := filepath.Join(s.instance.SystemDir(), "update-script.sh")
-	if err := os.WriteFile(scriptPath, []byte(updateScript), 0755); err != nil {
-		return fmt.Errorf("write update script: %w", err)
-	}
-
-	// Run the update worker container
-	// Use hostRoot (the host path) for volume mount, not the container path
-	// Mount as read-write so we can write the update.log for debugging
-	hostSystemDir := hostRoot + "/system"
-	args := []string{
-		"run", "-d",
-		"--name", workerName,
-		"--rm",
-		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-		"-v", hostSystemDir + ":/stevedore-system:rw",
-		"--label", "com.stevedore.managed=true",
-		"--label", "com.stevedore.role=update-worker",
-		"docker:cli",
-		"sh", "-c", "cat /stevedore-system/update-script.sh | sh",
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("spawn update worker: %w: %s", err, stderr.String())
-	}
-
-	log.Printf("Update worker spawned: %s", workerName)
-	log.Printf("Self-update initiated. This container will be replaced shortly.")
-
-	return nil
+	return nil // Never reached
 }
 
 // IsStevedoreDeployment returns true if the deployment is the stevedore self-deployment.
@@ -294,7 +183,8 @@ func IsStevedoreDeployment(name string) bool {
 }
 
 // TriggerSelfUpdate performs a self-update if there are changes available.
-// It syncs the stevedore deployment, builds a new image, and spawns an update worker.
+// It syncs the stevedore deployment, builds a new image (with the same tag as current),
+// and exits to let the restart policy bring up the new version.
 // Returns (updated bool, error).
 func (i *Instance) TriggerSelfUpdate(ctx context.Context, currentCommit string) (bool, error) {
 	deployment := "stevedore"
@@ -327,13 +217,13 @@ func (i *Instance) TriggerSelfUpdate(ctx context.Context, currentCommit string) 
 
 	log.Printf("Self-update: update available (%s -> %s)", currentCommit[:12], newCommit[:12])
 
-	// Build new image
+	// Build new image (this uses the same tag as current, so restart picks up new image)
 	newImage, err := selfUpdate.BuildNewImage(ctx)
 	if err != nil {
 		return false, fmt.Errorf("build new image: %w", err)
 	}
 
-	// Execute update (this spawns a worker that will replace our container)
+	// Execute update (this exits the container - restart policy will restart with new image)
 	if err := selfUpdate.Execute(ctx, newImage); err != nil {
 		return false, fmt.Errorf("execute self-update: %w", err)
 	}
