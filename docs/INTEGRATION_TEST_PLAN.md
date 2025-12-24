@@ -11,9 +11,9 @@ host installer (`stevedore-install.sh`).
 
 ## How We Test The Installer In CI
 
-Integration tests are Go tests with an explicit build tag to keep `go test ./...` fast and Docker-free.
+Integration tests are Go tests under `tests/integration/`.
 
-Implementation: `tests/integration/install_test.go` (build tag: `integration`).
+Implementation: `tests/integration/install_test.go`.
 
 ### Donor Container Flow (current)
 
@@ -141,4 +141,4 @@ The integration test package (`tests/integration/`) now contains:
 ## Running Locally
 
 - `make test-integration` (requires Docker and outbound network access for `apt` and Docker build downloads)
-- `go test -tags=integration ./tests/integration -v -count=1`
+- `go test ./tests/integration/... -v -count=1`

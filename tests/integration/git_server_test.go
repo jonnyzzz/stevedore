@@ -3,80 +3,62 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
 // GitServer represents an SSH Git server sidecar container for integration tests.
-// It runs an Ubuntu container with OpenSSH server and git to provide a real Git
+// It runs a container with OpenSSH server and git to provide a real Git
 // repository that can be accessed via SSH.
+// Uses Dockerfile.gitserver from testdata directory.
 type GitServer struct {
 	t           testing.TB
 	prefix      string
 	containerID string
+	imageTag    string
 	ipAddress   string
-	r           *Runner
+	docker      *dockerCLI
 	ctx         context.Context
 }
 
 // NewGitServer creates and starts a new Git server sidecar container.
-// The server is configured with OpenSSH and git, ready to accept SSH connections.
+// The server is built from Dockerfile.gitserver and configured with OpenSSH and git.
 func NewGitServer(t testing.TB, prefix string) *GitServer {
 	t.Helper()
 
-	r := NewRunner(t)
 	ctx := context.Background()
-
-	g := &GitServer{
-		t:      t,
-		prefix: prefix,
-		r:      r,
-		ctx:    ctx,
-	}
+	r := NewRunner(t)
+	docker := &dockerCLI{t: t, ctx: ctx, r: r}
 
 	containerName := prefix + "-gitserver"
+	imageTag := "stevedore-gitserver:" + fmt.Sprintf("%d", time.Now().UnixNano())
 
-	// Clean up any existing container
-	_, _ = r.Exec(ctx, ExecSpec{
-		Cmd:    "docker",
-		Args:   []string{"rm", "-f", containerName},
-		Prefix: "[docker]",
-	})
-
-	// Start Ubuntu container
-	res, err := r.Exec(ctx, ExecSpec{
-		Cmd:    "docker",
-		Args:   []string{"run", "-d", "--name", containerName, "ubuntu:22.04", "sleep", "infinity"},
-		Prefix: "[docker]",
-	})
-	if err != nil || res.ExitCode != 0 {
-		t.Fatalf("failed to start git server container: %v", err)
+	g := &GitServer{
+		t:        t,
+		prefix:   prefix,
+		docker:   docker,
+		ctx:      ctx,
+		imageTag: imageTag,
 	}
-	g.containerID = strings.TrimSpace(res.Output)
+
+	// Clean up any existing container with same name
+	docker.stopAndRemoveContainer(containerName)
+
+	// Build the git server image
+	repoRoot := testRepoRoot(t)
+	dockerfilePath := filepath.Join(repoRoot, "tests", "integration", "testdata", "Dockerfile.gitserver")
+	docker.runOK("build", "-t", imageTag, "-f", dockerfilePath, filepath.Dir(dockerfilePath))
+
+	// Start the container
+	output := docker.runOK("run", "-d", "--name", containerName, imageTag)
+	g.containerID = strings.TrimSpace(output)
 
 	// Register cleanup
 	t.Cleanup(func() {
 		g.Cleanup()
 	})
-
-	// Install required packages
-	g.execInContainer("apt-get", "update", "-qq")
-	g.execInContainer("apt-get", "install", "-y", "--no-install-recommends", "-qq", "openssh-server", "git")
-
-	// Configure SSH
-	g.execInContainer("mkdir", "-p", "/run/sshd")
-	g.execInContainer("ssh-keygen", "-A")
-	g.execInContainer("sh", "-c", "echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config")
-	g.execInContainer("sh", "-c", "echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config")
-	g.execInContainer("mkdir", "-p", "/root/.ssh")
-	g.execInContainer("chmod", "700", "/root/.ssh")
-
-	// Start SSH server
-	g.execInContainer("/usr/sbin/sshd")
-
-	// Create git directory
-	g.execInContainer("mkdir", "-p", "/git")
 
 	// Get container IP address
 	g.ipAddress = g.getContainerIP()
@@ -97,7 +79,7 @@ func (g *GitServer) execInContainer(args ...string) string {
 	g.t.Helper()
 
 	dockerArgs := append([]string{"exec", g.containerID}, args...)
-	res, err := g.r.Exec(g.ctx, ExecSpec{
+	res, err := g.docker.r.Exec(g.ctx, ExecSpec{
 		Cmd:    "docker",
 		Args:   dockerArgs,
 		Prefix: "[gitserver]",
@@ -112,24 +94,16 @@ func (g *GitServer) execInContainer(args ...string) string {
 func (g *GitServer) getContainerIP() string {
 	g.t.Helper()
 
-	res, err := g.r.Exec(g.ctx, ExecSpec{
-		Cmd:    "docker",
-		Args:   []string{"inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", g.containerID},
-		Prefix: "[docker]",
-	})
-	if err != nil || res.ExitCode != 0 {
-		return ""
-	}
-	return strings.TrimSpace(res.Output)
+	output := g.docker.runOK("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", g.containerID)
+	return strings.TrimSpace(output)
 }
 
 // waitForSSH waits for the SSH server to be ready to accept connections.
 func (g *GitServer) waitForSSH() {
 	g.t.Helper()
 
-	// Wait for sshd to be listening
 	for i := 0; i < 30; i++ {
-		res, _ := g.r.Exec(g.ctx, ExecSpec{
+		res, _ := g.docker.r.Exec(g.ctx, ExecSpec{
 			Cmd:    "docker",
 			Args:   []string{"exec", g.containerID, "sh", "-c", "pgrep -x sshd > /dev/null && echo ready"},
 			Prefix: "[gitserver]",
@@ -226,44 +200,14 @@ func (g *GitServer) GetHostKeyFingerprint() string {
 	return strings.TrimSpace(output)
 }
 
-// Cleanup removes the git server container.
+// Cleanup removes the git server container and image.
 func (g *GitServer) Cleanup() {
-	if g.containerID == "" {
-		return
+	if g.containerID != "" {
+		g.docker.stopAndRemoveContainer(g.containerID)
+		g.containerID = ""
 	}
-
-	_, _ = g.r.Exec(g.ctx, ExecSpec{
-		Cmd:    "docker",
-		Args:   []string{"rm", "-f", g.containerID},
-		Prefix: "[docker]",
-	})
-	g.containerID = ""
-}
-
-// TestGitServer_Basic tests that the GitServer helper works correctly.
-func TestGitServer_Basic(t *testing.T) {
-	prefix := fmt.Sprintf("stevedore-it-gitserver-%d", time.Now().UnixNano())
-	gs := NewGitServer(t, prefix)
-
-	// Create a test repo
-	if err := gs.InitRepoWithContent("test-repo", map[string]string{
-		"README.md": "# Test Repository\n",
-		"docker-compose.yaml": `services:
-  web:
-    image: nginx:alpine
-`,
-	}); err != nil {
-		t.Fatalf("failed to init repo: %v", err)
+	if g.imageTag != "" {
+		g.docker.removeImage(g.imageTag)
+		g.imageTag = ""
 	}
-
-	// Verify the repo was created
-	sshURL := gs.GetSSHURL("test-repo")
-	if !strings.Contains(sshURL, "root@") {
-		t.Errorf("expected SSH URL to contain root@, got: %s", sshURL)
-	}
-	if !strings.Contains(sshURL, "/git/test-repo.git") {
-		t.Errorf("expected SSH URL to contain /git/test-repo.git, got: %s", sshURL)
-	}
-
-	t.Logf("Git server test passed. SSH URL: %s", sshURL)
 }

@@ -1,0 +1,23 @@
+# Git server for integration tests
+# Provides SSH access to bare Git repositories
+FROM ubuntu:22.04
+
+# Install OpenSSH server and Git
+RUN apt-get update -qq && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -qq \
+    openssh-server \
+    git && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Configure SSH
+RUN mkdir -p /run/sshd && \
+    ssh-keygen -A && \
+    echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
+    echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config && \
+    mkdir -p /root/.ssh && \
+    chmod 700 /root/.ssh && \
+    mkdir -p /git
+
+# Start SSH daemon in foreground
+CMD ["/usr/sbin/sshd", "-D"]

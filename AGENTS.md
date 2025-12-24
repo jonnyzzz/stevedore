@@ -115,8 +115,10 @@ Health monitoring:
 
 Integration tests (current state):
 
-- Installer integration test is written in Go under `tests/integration/` (build tag: `integration`) and documented in `docs/INTEGRATION_TEST_PLAN.md`.
+- Integration tests are written in Go under `tests/integration/` and documented in `docs/INTEGRATION_TEST_PLAN.md`.
+- **Do NOT use `//go:build integration` tags** — all tests compile together.
 - Test strategy: start an Ubuntu donor container (`sleep infinity`), mount the checkout read-only, copy it into a work dir, run `./stevedore-install.sh`, then validate via minimal `docker exec` calls.
 - All spawned processes must pipe and stream output line-by-line to the test output (no inherited stdio) to keep CI logs readable.
 - Tests must best-effort cleanup stale containers (use a predictable prefix like `stevedore-it-`).
-- Deployment workflow test exists (`tests/integration/deploy_test.go`) but is skipped in CI due to SSH complexity.
+- GitServer helper (`tests/integration/git_server_test.go`) provides SSH Git server sidecar using Dockerfile.gitserver.
+- Deployment workflow test (`tests/integration/deploy_test.go`) exercises full lifecycle with GitServer.
