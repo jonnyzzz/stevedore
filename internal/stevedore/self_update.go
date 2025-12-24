@@ -164,13 +164,11 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	// Get container env file path (on host)
 	envFilePath := filepath.Join(hostRoot, "system", "container.env")
 
-	// Path to log file on host for debugging
-	logFilePath := filepath.Join(hostRoot, "system", "update.log")
-
 	// Create the update script that will run in a separate container
+	// Note: LOG_FILE uses the container path since the script runs inside the worker
 	updateScript := fmt.Sprintf(`#!/bin/sh
 # Do not use set -e - we want to log all errors and continue
-LOG_FILE="%s"
+LOG_FILE="/stevedore-system/update.log"
 
 log() {
   echo "$@"
@@ -239,7 +237,7 @@ else
 fi
 
 log "Self-update complete!"
-`, logFilePath, containerName, newImageTag, hostRoot, envFilePath, restartPolicy,
+`, containerName, newImageTag, hostRoot, envFilePath, restartPolicy,
 		containerName, containerName,
 		containerName,
 		envFilePath, envFilePath, envFilePath,
@@ -259,13 +257,14 @@ log "Self-update complete!"
 
 	// Run the update worker container
 	// Use hostRoot (the host path) for volume mount, not the container path
+	// Mount as read-write so we can write the update.log for debugging
 	hostSystemDir := hostRoot + "/system"
 	args := []string{
 		"run", "-d",
 		"--name", workerName,
 		"--rm",
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-		"-v", hostSystemDir + ":/stevedore-system:ro",
+		"-v", hostSystemDir + ":/stevedore-system:rw",
 		"--label", "com.stevedore.managed=true",
 		"--label", "com.stevedore.role=update-worker",
 		"docker:cli",
