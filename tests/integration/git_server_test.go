@@ -251,6 +251,9 @@ func (g *GitServer) InitRepoFromContainer(srcContainer *TestContainer, srcPath, 
 		return fmt.Errorf("file transfer appears to have failed, directory listing: %s", verifyRes)
 	}
 
+	// Fix ownership so git commands work as root (files come from another container with different UID)
+	g.container.ExecOK("chown", "-R", "root:root", workRepoPath)
+
 	// Initialize git repo and commit
 	g.container.ExecOK("git", "-C", workRepoPath, "init")
 	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.email", "test@test.local")
