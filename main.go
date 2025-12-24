@@ -113,6 +113,13 @@ func executeCommand(instance *stevedore.Instance, args []string) (output string,
 		}
 		return buf.String(), 0
 
+	case "self-update":
+		if err := runSelfUpdateTo(instance, &buf); err != nil {
+			buf.WriteString(fmt.Sprintf("ERROR: %v\n", err))
+			return buf.String(), 1
+		}
+		return buf.String(), 0
+
 	default:
 		buf.WriteString(fmt.Sprintf("ERROR: unknown command: %s\n", args[0]))
 		printUsageTo(&buf)
@@ -455,6 +462,25 @@ func runCheckTo(instance *stevedore.Instance, args []string, w io.Writer) error 
 	return nil
 }
 
+func runSelfUpdateTo(instance *stevedore.Instance, w io.Writer) error {
+	ctx := context.Background()
+
+	_, _ = fmt.Fprintln(w, "Starting self-update...")
+
+	updated, err := instance.TriggerSelfUpdate(ctx, GitCommit)
+	if err != nil {
+		return err
+	}
+
+	if updated {
+		_, _ = fmt.Fprintln(w, "Self-update initiated. Container will be replaced shortly.")
+	} else {
+		_, _ = fmt.Fprintln(w, "Already up to date.")
+	}
+
+	return nil
+}
+
 func runParamTo(instance *stevedore.Instance, args []string, w io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("param: missing subcommand (set|get|list)")
@@ -562,6 +588,7 @@ func printUsageTo(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  stevedore version")
 	_, _ = fmt.Fprintln(w, "  stevedore status [<deployment>]")
 	_, _ = fmt.Fprintln(w, "  stevedore check <deployment>   # check for git updates")
+	_, _ = fmt.Fprintln(w, "  stevedore self-update          # update stevedore itself")
 	_, _ = fmt.Fprintln(w, "  stevedore repo add <deployment> <git-url> [--branch <branch>]")
 	_, _ = fmt.Fprintln(w, "  stevedore repo key <deployment>")
 	_, _ = fmt.Fprintln(w, "  stevedore repo list")

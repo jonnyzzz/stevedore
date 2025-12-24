@@ -48,6 +48,9 @@ func NewSelfUpdate(instance *Instance, config SelfUpdateConfig) *SelfUpdate {
 }
 
 // NeedsSelfUpdate checks if the stevedore deployment has a newer commit than currently running.
+// Returns (needsUpdate, newCommit, error).
+// If currentCommit is "unknown" or empty, returns (true, newCommit, nil) to force an update
+// since we can't determine if we're up-to-date.
 func (s *SelfUpdate) NeedsSelfUpdate(ctx context.Context, currentCommit string) (bool, string, error) {
 	deployment := "stevedore"
 
@@ -71,8 +74,9 @@ func (s *SelfUpdate) NeedsSelfUpdate(ctx context.Context, currentCommit string) 
 	newCommit := strings.TrimSpace(stdout.String())
 
 	if currentCommit == "" || currentCommit == "unknown" {
-		// Can't determine current version, assume no update needed
-		return false, newCommit, nil
+		// Can't determine current version - force update to ensure we're up-to-date
+		log.Printf("Current commit is unknown, forcing self-update to %s", newCommit[:12])
+		return true, newCommit, nil
 	}
 
 	needsUpdate := newCommit != currentCommit
@@ -127,15 +131,22 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 
 	log.Printf("Self-update: preparing to replace container %s with image %s", containerName, newImageTag)
 
-	// Get the current container's configuration
-	inspectCmd := exec.CommandContext(ctx, "docker", "inspect", "--format",
-		"{{range .Mounts}}{{.Source}}:{{.Destination}}:{{if .RW}}rw{{else}}ro{{end}} {{end}}",
+	// Get the current container's mount for /opt/stevedore
+	// Format: /host/path:/opt/stevedore:rw (or ro)
+	mountsCmd := exec.CommandContext(ctx, "docker", "inspect", "--format",
+		"{{range .Mounts}}{{if eq .Destination \"/opt/stevedore\"}}{{.Source}}{{end}}{{end}}",
 		containerName)
 	var mountsOut bytes.Buffer
-	inspectCmd.Stdout = &mountsOut
-	if err := inspectCmd.Run(); err != nil {
+	mountsCmd.Stdout = &mountsOut
+	if err := mountsCmd.Run(); err != nil {
 		return fmt.Errorf("inspect container mounts: %w", err)
 	}
+	hostRoot := strings.TrimSpace(mountsOut.String())
+	if hostRoot == "" {
+		// Fallback to default path if mount not found
+		hostRoot = "/opt/stevedore"
+	}
+	log.Printf("Self-update: using host root: %s", hostRoot)
 
 	// Get restart policy
 	policyCmd := exec.CommandContext(ctx, "docker", "inspect", "--format",
@@ -149,6 +160,9 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	if restartPolicy == "" {
 		restartPolicy = "unless-stopped"
 	}
+
+	// Get container env file path (on host)
+	envFilePath := filepath.Join(hostRoot, "system", "container.env")
 
 	// Create the update script that will run in a separate container
 	updateScript := fmt.Sprintf(`#!/bin/sh
@@ -172,13 +186,15 @@ echo "Starting new container with image: %s"
 docker run -d \
   --name %s \
   --restart %s \
+  --env-file %s \
+  -p 42107:42107 \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /opt/stevedore:/opt/stevedore \
+  -v %s:/opt/stevedore \
   %s \
   /app/stevedore -d
 
 echo "Self-update complete!"
-`, containerName, containerName, containerName, newImageTag, containerName, restartPolicy, newImageTag)
+`, containerName, containerName, containerName, newImageTag, containerName, restartPolicy, envFilePath, hostRoot, newImageTag)
 
 	// Run the update worker
 	workerName := fmt.Sprintf("stevedore-update-%d", time.Now().Unix())
@@ -221,4 +237,52 @@ echo "Self-update complete!"
 // IsStevedoreDeployment returns true if the deployment is the stevedore self-deployment.
 func IsStevedoreDeployment(name string) bool {
 	return name == "stevedore"
+}
+
+// TriggerSelfUpdate performs a self-update if there are changes available.
+// It syncs the stevedore deployment, builds a new image, and spawns an update worker.
+// Returns (updated bool, error).
+func (i *Instance) TriggerSelfUpdate(ctx context.Context, currentCommit string) (bool, error) {
+	deployment := "stevedore"
+
+	// Check if stevedore deployment exists
+	deploymentDir := i.DeploymentDir(deployment)
+	if _, err := os.Stat(deploymentDir); os.IsNotExist(err) {
+		return false, fmt.Errorf("stevedore deployment not found (not in self-bootstrap mode)")
+	}
+
+	// Sync first to get latest changes
+	log.Printf("Self-update: syncing stevedore deployment...")
+	result, err := i.GitSyncClean(ctx, deployment, true)
+	if err != nil {
+		return false, fmt.Errorf("sync stevedore deployment: %w", err)
+	}
+	log.Printf("Self-update: synced to %s@%s", result.Branch, result.Commit[:12])
+
+	// Check if update is needed
+	selfUpdate := NewSelfUpdate(i, SelfUpdateConfig{})
+	needsUpdate, newCommit, err := selfUpdate.NeedsSelfUpdate(ctx, currentCommit)
+	if err != nil {
+		return false, fmt.Errorf("check for updates: %w", err)
+	}
+
+	if !needsUpdate {
+		log.Printf("Self-update: already at latest commit %s", currentCommit[:12])
+		return false, nil
+	}
+
+	log.Printf("Self-update: update available (%s -> %s)", currentCommit[:12], newCommit[:12])
+
+	// Build new image
+	newImage, err := selfUpdate.BuildNewImage(ctx)
+	if err != nil {
+		return false, fmt.Errorf("build new image: %w", err)
+	}
+
+	// Execute update (this spawns a worker that will replace our container)
+	if err := selfUpdate.Execute(ctx, newImage); err != nil {
+		return false, fmt.Errorf("execute self-update: %w", err)
+	}
+
+	return true, nil
 }
