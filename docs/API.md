@@ -4,14 +4,27 @@ Stevedore exposes an HTTP API on port `42107` for health checks and administrati
 
 ## Authentication
 
-All `/api/*` endpoints require authentication using a Bearer token.
+All `/api/*` endpoints require authentication using a Bearer token and version headers.
 
 ```bash
 curl -H "Authorization: Bearer $(cat /opt/stevedore/system/admin.key)" \
+     -H "X-Stevedore-Version: 0.7.44" \
+     -H "X-Stevedore-Build: abc123def456..." \
      http://localhost:42107/api/status
 ```
 
 The admin key is generated during installation and stored at `/opt/stevedore/system/admin.key`.
+
+### Version Verification
+
+All authenticated API endpoints require version headers to ensure CLI and daemon binaries match exactly:
+
+| Header | Description |
+|--------|-------------|
+| `X-Stevedore-Version` | Stevedore version (e.g., `0.7.44`) |
+| `X-Stevedore-Build` | Git commit hash of the build |
+
+If versions don't match, the API returns `409 Conflict` with a clear error message. Use `stevedore doctor` to diagnose version mismatches.
 
 ## Endpoints
 
@@ -137,6 +150,66 @@ Manually triggers a deployment.
 
 ---
 
+### Check for Updates
+
+**POST /api/check/{name}**
+
+Checks for updates without modifying files. Uses `git fetch` only to compare local and remote commits. Safe to call while deployment is running.
+
+**Response:**
+```json
+{
+  "deployment": "my-app",
+  "currentCommit": "abc123def456789...",
+  "remoteCommit": "def456789abc123...",
+  "hasChanges": true,
+  "branch": "main"
+}
+```
+
+**Status Codes:**
+- `200 OK` - Check completed successfully
+- `500 Internal Server Error` - Check failed
+
+---
+
+### Execute CLI Command
+
+**POST /api/exec**
+
+Executes a CLI command inside the daemon process. This allows the CLI to delegate commands to the daemon for consistency.
+
+**Request:**
+```json
+{
+  "args": ["status", "my-app"]
+}
+```
+
+**Response:**
+```json
+{
+  "output": "Deployment: my-app\nProject: stevedore-my-app\n...",
+  "exitCode": 0
+}
+```
+
+If the command fails:
+```json
+{
+  "output": "ERROR: deployment not found\n",
+  "exitCode": 1,
+  "error": "command failed with exit code 1"
+}
+```
+
+**Status Codes:**
+- `200 OK` - Command executed (check exitCode for result)
+- `400 Bad Request` - Invalid request
+- `503 Service Unavailable` - Command executor not configured
+
+---
+
 ## Error Responses
 
 All errors return JSON with an `error` field:
@@ -151,6 +224,7 @@ All errors return JSON with an `error` field:
 - `400 Bad Request` - Invalid request (e.g., invalid deployment name)
 - `401 Unauthorized` - Missing or invalid authentication
 - `405 Method Not Allowed` - Wrong HTTP method
+- `409 Conflict` - Version mismatch between CLI and daemon
 - `500 Internal Server Error` - Server error
 
 ## Environment Variables

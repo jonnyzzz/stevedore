@@ -152,8 +152,21 @@ stevedore deploy up homepage
 # Check deployment status
 stevedore status homepage
 
+# Check for updates (git fetch only, safe while running)
+stevedore check homepage
+
 # Stop the deployment
 stevedore deploy down homepage
+```
+
+### Sync Options
+
+```bash
+# Sync with stale file cleanup (default)
+stevedore deploy sync homepage
+
+# Sync without removing stale files
+stevedore deploy sync homepage --no-clean
 ```
 
 Add the printed public key to your repo as a **read-only Deploy Key**.

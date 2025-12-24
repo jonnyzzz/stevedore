@@ -298,6 +298,32 @@ func (c *TestContainer) ExecBashOKTimeout(env map[string]string, script string, 
 	return res.Output
 }
 
+// ExecBashExitCode runs a bash script and returns the exit code without failing the test.
+func (c *TestContainer) ExecBashExitCode(env map[string]string, script string) int {
+	c.t.Helper()
+
+	dockerArgs := make([]string, 0, 2+len(env)*2+1+3)
+	dockerArgs = append(dockerArgs, "exec")
+
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		dockerArgs = append(dockerArgs, "-e", k+"="+env[k])
+	}
+
+	dockerArgs = append(dockerArgs, c.name, "bash", "-lc", script)
+
+	res, _ := c.r.Exec(c.ctx, ExecSpec{
+		Cmd:    "docker",
+		Args:   dockerArgs,
+		Prefix: "[exec]",
+	})
+	return res.ExitCode
+}
+
 // CopySourcesToWorkDir copies the mounted source directory to a work directory inside the container.
 func (c *TestContainer) CopySourcesToWorkDir(workDir string) {
 	c.t.Helper()

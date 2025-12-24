@@ -147,3 +147,60 @@ func (g *GitServer) GetHostKeyFingerprint() string {
 	output := g.container.ExecOK("ssh-keygen", "-lf", "/etc/ssh/ssh_host_ed25519_key.pub")
 	return strings.TrimSpace(output)
 }
+
+// UpdateFile updates or creates a file in the repository and commits/pushes the change.
+func (g *GitServer) UpdateFile(repoName, filename, content string) error {
+	g.t.Helper()
+
+	bareRepoPath := fmt.Sprintf("/git/%s.git", repoName)
+	workRepoPath := fmt.Sprintf("/tmp/%s-update", repoName)
+
+	// Clone the repo locally
+	g.container.ExecOK("git", "clone", bareRepoPath, workRepoPath)
+	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.email", "test@test.local")
+	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.name", "Test")
+
+	// Handle subdirectories
+	if strings.Contains(filename, "/") {
+		dir := filename[:strings.LastIndex(filename, "/")]
+		g.container.ExecOK("mkdir", "-p", workRepoPath+"/"+dir)
+	}
+
+	// Write file content
+	g.container.ExecOK("sh", "-c", fmt.Sprintf("cat > '%s/%s' << 'STEVEDORE_EOF'\n%s\nSTEVEDORE_EOF", workRepoPath, filename, content))
+
+	// Commit and push
+	g.container.ExecOK("git", "-C", workRepoPath, "add", filename)
+	g.container.ExecOK("git", "-C", workRepoPath, "commit", "-m", fmt.Sprintf("Update %s", filename))
+	g.container.ExecOK("git", "-C", workRepoPath, "push", "origin", "main")
+
+	// Clean up
+	g.container.ExecOK("rm", "-rf", workRepoPath)
+
+	return nil
+}
+
+// DeleteFile removes a file from the repository and commits/pushes the change.
+func (g *GitServer) DeleteFile(repoName, filename string) error {
+	g.t.Helper()
+
+	bareRepoPath := fmt.Sprintf("/git/%s.git", repoName)
+	workRepoPath := fmt.Sprintf("/tmp/%s-delete", repoName)
+
+	// Clone the repo locally
+	g.container.ExecOK("git", "clone", bareRepoPath, workRepoPath)
+	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.email", "test@test.local")
+	g.container.ExecOK("git", "-C", workRepoPath, "config", "user.name", "Test")
+
+	// Remove file
+	g.container.ExecOK("git", "-C", workRepoPath, "rm", filename)
+
+	// Commit and push
+	g.container.ExecOK("git", "-C", workRepoPath, "commit", "-m", fmt.Sprintf("Delete %s", filename))
+	g.container.ExecOK("git", "-C", workRepoPath, "push", "origin", "main")
+
+	// Clean up
+	g.container.ExecOK("rm", "-rf", workRepoPath)
+
+	return nil
+}
