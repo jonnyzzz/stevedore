@@ -201,11 +201,14 @@ else
   log "Warning: docker rm failed (may already be removed)"
 fi
 
-# Verify env file exists
-if [ ! -f "%s" ]; then
-  log "ERROR: Env file not found at %s"
-  log "Listing system directory:"
-  ls -la "$(dirname '%s')" >> "$LOG_FILE" 2>&1 || log "Could not list directory"
+# Verify env file exists in the mounted system directory
+# Use container path /stevedore-system for checking, but use host path for docker run
+ENV_FILE_CONTAINER="/stevedore-system/container.env"
+if [ ! -f "$ENV_FILE_CONTAINER" ]; then
+  log "ERROR: Env file not found at $ENV_FILE_CONTAINER"
+  log "Listing /stevedore-system:"
+  ls -la /stevedore-system >> "$LOG_FILE" 2>&1 || log "Could not list directory"
+  log "Expected host path: %s"
   exit 1
 fi
 
@@ -240,7 +243,7 @@ log "Self-update complete!"
 `, containerName, newImageTag, hostRoot, envFilePath, restartPolicy,
 		containerName, containerName,
 		containerName,
-		envFilePath, envFilePath, envFilePath,
+		envFilePath,
 		newImageTag, containerName, restartPolicy, envFilePath, hostRoot, newImageTag,
 		containerName, restartPolicy, envFilePath, hostRoot, newImageTag)
 
