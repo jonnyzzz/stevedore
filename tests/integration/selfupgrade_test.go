@@ -351,6 +351,8 @@ func ensureDockerBindMount(t *testing.T, donor *TestContainer, stateDir string) 
 	script := `docker run --rm -v "${STEVEDORE_TEST_STATE_DIR}:/mnt" alpine:3.21 sh -c "test -f /mnt/${STEVEDORE_TEST_PROBE_FILE}"`
 	res, err := donor.ExecBashTimeout(env, script, 2*time.Minute)
 	if err != nil {
+		// Note: ExecBashTimeout always returns a valid result even on error,
+		// so accessing res.Output is safe and useful for diagnostics
 		t.Fatalf("Docker bind mount check failed on macOS. Ensure Docker Desktop file sharing includes %s. Error: %v\nOutput: %s", stateDir, err, res.Output)
 	}
 }
