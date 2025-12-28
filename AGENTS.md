@@ -72,10 +72,12 @@ Current CLI commands:
 - `stevedore repo key <name>` — Show public key for deployment
 - `stevedore repo list` — List all deployments
 - `stevedore param set/get/list` — Manage encrypted parameters
-- `stevedore deploy sync <name>` — Git sync via worker container
+- `stevedore deploy sync <name>` — Git sync (local git inside container)
 - `stevedore deploy up <name>` — Deploy via docker compose
 - `stevedore deploy down <name>` — Stop deployment
 - `stevedore status [name]` — Show deployment/container status
+- `stevedore check <name>` — Check for git updates (fetch only)
+- `stevedore self-update` — Update stevedore itself
 
 HTTP API (port 42107):
 
@@ -84,14 +86,18 @@ HTTP API (port 42107):
 - `GET /api/status/{name}` — Deployment details (admin auth)
 - `POST /api/sync/{name}` — Trigger sync (admin auth)
 - `POST /api/deploy/{name}` — Trigger deploy (admin auth)
+- `POST /api/check/{name}` — Check for updates (admin auth)
+- `POST /api/exec` — Execute CLI command in daemon (admin auth)
 - Authentication: `Authorization: Bearer <admin.key>`
+- Version headers required: `X-Stevedore-Version`, `X-Stevedore-Build`
 - See `docs/API.md` for full reference
 
 Worker containers:
 
-- Git operations run in isolated `alpine/git` containers for security.
+- Worker container implementation exists in `internal/stevedore/git_worker.go` (uses `alpine/git`).
+- Current default: Git sync/check runs locally inside the Stevedore container (`GitSyncClean`, `GitCheckRemote`).
 - Worker containers are labeled with `com.stevedore.managed=true` and `com.stevedore.role=git-worker`.
-- See `internal/stevedore/git_worker.go` for implementation.
+- Update worker uses `docker:cli` for self-update operations.
 
 Self-update:
 
