@@ -203,12 +203,12 @@ func TestSelfUpgrade(t *testing.T) {
 		cd %s
 		STEVEDORE_CONTAINER=%s ./stevedore.sh self-update 2>&1
 	`, workDir, donor.StevedoreContainerName), 15*time.Minute)
-	t.Logf("Self-update output:\n%s", selfUpdateRes.Output)
 
 	// Self-update should succeed (it just spawns the worker)
 	if selfUpdateErr != nil {
 		t.Fatalf("Self-update failed: %v", selfUpdateErr)
 	}
+	t.Logf("Self-update output:\n%s", selfUpdateRes.Output)
 
 	// Step 10: Wait for update worker to complete and new container to start
 	t.Log("Step 10: Waiting for update worker to complete...")
