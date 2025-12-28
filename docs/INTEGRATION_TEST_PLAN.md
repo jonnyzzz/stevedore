@@ -139,7 +139,7 @@ The integration test package (`tests/integration/`) now contains:
 3. **TestDeploymentWorkflow**: Full deployment lifecycle with Git server
 4. **TestMonitoringWorkflow**: Git check + sync-clean behavior
 5. **TestGitServer_Basic**: Git server helper validation
-6. **TestSelfUpgrade**: Self-update workflow (skips on macOS)
+6. **TestSelfUpgrade**: Self-update workflow (macOS requires Docker Desktop file sharing for bind mounts)
 
 ## Running Locally
 

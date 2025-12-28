@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -22,11 +23,6 @@ import (
 func TestSelfUpgrade(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
-	}
-
-	// Skip on macOS due to Docker Desktop volume mount limitations
-	if runtime.GOOS == "darwin" {
-		t.Skip("skipping self-upgrade test on macOS (Docker Desktop volume mount limitations)")
 	}
 
 	// Step 1: Create donor container
@@ -55,6 +51,7 @@ func TestSelfUpgrade(t *testing.T) {
 	t.Log("Step 3: Running installer with self-bootstrap...")
 
 	stateDir := filepath.Join(donor.StateHostPath, "stevedore-state")
+	ensureDockerBindMount(t, donor, stateDir)
 	installEnv := map[string]string{
 		"STEVEDORE_HOST_ROOT":       stateDir,
 		"STEVEDORE_CONTAINER_NAME":  donor.StevedoreContainerName,
@@ -327,4 +324,33 @@ func TestSelfUpgrade(t *testing.T) {
 	`, workDir, donor.StevedoreContainerName, simpleAppName))
 
 	t.Log("Self-upgrade test completed successfully!")
+}
+
+func ensureDockerBindMount(t *testing.T, donor *TestContainer, stateDir string) {
+	t.Helper()
+
+	if runtime.GOOS != "darwin" {
+		return
+	}
+
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+
+	probeName := "stevedore-bind-mount-probe"
+	probePath := filepath.Join(stateDir, probeName)
+	if err := os.WriteFile(probePath, []byte("ok"), 0600); err != nil {
+		t.Fatalf("write probe file: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(probePath) })
+
+	env := map[string]string{
+		"STEVEDORE_TEST_STATE_DIR":  stateDir,
+		"STEVEDORE_TEST_PROBE_FILE": probeName,
+	}
+	script := `docker run --rm -v "${STEVEDORE_TEST_STATE_DIR}:/mnt" alpine:3.21 sh -c "test -f /mnt/${STEVEDORE_TEST_PROBE_FILE}"`
+	res, err := donor.ExecBashTimeout(env, script, 2*time.Minute)
+	if err != nil {
+		t.Fatalf("Docker bind mount check failed on macOS. Ensure Docker Desktop file sharing includes %s. Error: %v\nOutput: %s", stateDir, err, res.Output)
+	}
 }
