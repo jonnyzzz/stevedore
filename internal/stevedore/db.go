@@ -107,10 +107,10 @@ func (i *Instance) dbKey() (string, error) {
 
 func (i *Instance) configureDB(db *sql.DB) error {
 	for _, stmt := range []string{
+		"PRAGMA busy_timeout = 5000;",
 		"PRAGMA foreign_keys = ON;",
 		"PRAGMA journal_mode = WAL;",
 		"PRAGMA synchronous = NORMAL;",
-		"PRAGMA busy_timeout = 5000;",
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			return err
