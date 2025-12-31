@@ -71,7 +71,7 @@ func (s *SelfUpdate) NeedsSelfUpdate(ctx context.Context, currentCommit string) 
 
 	if currentCommit == "" || currentCommit == "unknown" {
 		// Can't determine current version - force update to ensure we're up-to-date
-		log.Printf("Current commit is unknown, forcing self-update to %s", newCommit[:12])
+		log.Printf("Current commit is unknown, forcing self-update to %s", shortCommit(newCommit))
 		return true, newCommit, nil
 	}
 
@@ -373,7 +373,7 @@ func (i *Instance) TriggerSelfUpdate(ctx context.Context, currentCommit string) 
 	if err != nil {
 		return false, fmt.Errorf("sync stevedore deployment: %w", err)
 	}
-	log.Printf("Self-update: synced to %s@%s", result.Branch, result.Commit[:12])
+	log.Printf("Self-update: synced to %s@%s", result.Branch, shortCommit(result.Commit))
 
 	// Check if update is needed
 	selfUpdate := NewSelfUpdate(i, SelfUpdateConfig{})
@@ -383,11 +383,11 @@ func (i *Instance) TriggerSelfUpdate(ctx context.Context, currentCommit string) 
 	}
 
 	if !needsUpdate {
-		log.Printf("Self-update: already at latest commit %s", currentCommit[:12])
+		log.Printf("Self-update: already at latest commit %s", shortCommit(currentCommit))
 		return false, nil
 	}
 
-	log.Printf("Self-update: update available (%s -> %s)", currentCommit[:12], newCommit[:12])
+	log.Printf("Self-update: update available (%s -> %s)", shortCommit(currentCommit), shortCommit(newCommit))
 
 	// Build new image
 	newImage, err := selfUpdate.BuildNewImage(ctx)
