@@ -167,6 +167,19 @@ have_systemd() {
   command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
 }
 
+supports_buildkit() {
+  if [ "${DOCKER_USE_SUDO}" = "1" ]; then
+    if sudo_cmd docker buildx version >/dev/null 2>&1; then
+      return 0
+    fi
+    return 1
+  fi
+  if docker buildx version >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
 write_container_env() {
   log "Writing container env: ${STEVEDORE_CONTAINER_ENV}"
   sudo_cmd mkdir -p "$(dirname "${STEVEDORE_CONTAINER_ENV}")"
@@ -184,17 +197,28 @@ EOF
 build_image() {
   log "Building image: ${STEVEDORE_IMAGE}"
   if [ "${DOCKER_USE_SUDO}" = "1" ]; then
-    if ! sudo_cmd env DOCKER_BUILDKIT=1 docker build -t "${STEVEDORE_IMAGE}" .; then
+    if supports_buildkit; then
+      if ! sudo_cmd env DOCKER_BUILDKIT=1 docker build -t "${STEVEDORE_IMAGE}" .; then
+        log "WARNING: BuildKit build failed, retrying with legacy builder"
+        sudo_cmd env DOCKER_BUILDKIT=0 docker build -t "${STEVEDORE_IMAGE}" .
+      fi
+      return 0
+    fi
+    log "BuildKit unavailable; using legacy builder"
+    sudo_cmd env DOCKER_BUILDKIT=0 docker build -t "${STEVEDORE_IMAGE}" .
+    return 0
+  fi
+
+  if supports_buildkit; then
+    if ! DOCKER_BUILDKIT=1 docker build -t "${STEVEDORE_IMAGE}" .; then
       log "WARNING: BuildKit build failed, retrying with legacy builder"
-      sudo_cmd docker build -t "${STEVEDORE_IMAGE}" .
+      DOCKER_BUILDKIT=0 docker build -t "${STEVEDORE_IMAGE}" .
     fi
     return 0
   fi
 
-  if ! DOCKER_BUILDKIT=1 docker build -t "${STEVEDORE_IMAGE}" .; then
-    log "WARNING: BuildKit build failed, retrying with legacy builder"
-    docker build -t "${STEVEDORE_IMAGE}" .
-  fi
+  log "BuildKit unavailable; using legacy builder"
+  DOCKER_BUILDKIT=0 docker build -t "${STEVEDORE_IMAGE}" .
 }
 
 install_systemd_service() {
