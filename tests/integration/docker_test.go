@@ -367,7 +367,30 @@ func (c *TestContainer) ExecBashExitCode(env map[string]string, script string) i
 func (c *TestContainer) CopySourcesToWorkDir(workDir string) {
 	c.t.Helper()
 
-	c.ExecBashOK(nil, fmt.Sprintf("rm -rf %s && mkdir -p %s && cp -a /tmp/stevedore-src/. %s/", workDir, workDir, workDir))
+	excludeArgs := tarExcludeArgs()
+	script := fmt.Sprintf(
+		"set -o pipefail; rm -rf %[1]s && mkdir -p %[1]s && tar -C /tmp/stevedore-src %[2]s -cf - . | tar -C %[1]s -xpf -",
+		workDir,
+		excludeArgs,
+	)
+	c.ExecBashOK(nil, script)
+}
+
+func tarExcludeArgs() string {
+	excludes := []string{
+		".git",
+		".tmp",
+		".gocache",
+		".idea",
+		".claude",
+		".db",
+		".DS_Store",
+	}
+	args := make([]string, 0, len(excludes))
+	for _, exclude := range excludes {
+		args = append(args, "--exclude="+exclude)
+	}
+	return strings.Join(args, " ")
 }
 
 // Restart stops and starts the container.

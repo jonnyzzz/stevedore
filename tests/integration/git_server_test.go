@@ -232,8 +232,9 @@ func (g *GitServer) InitRepoFromContainer(srcContainer *TestContainer, srcPath, 
 
 	// Run the pipe: tar from source | extract to destination
 	// Using bash with pipefail to catch errors in the pipeline
-	pipeCmd := fmt.Sprintf("set -o pipefail; docker exec %s tar -C %s --exclude=.git --exclude=.tmp -cf - . | docker exec -i %s tar -C %s -xvf -",
-		srcContainer.GetContainerName(), srcPath, g.container.GetContainerName(), workRepoPath)
+	excludeArgs := tarExcludeArgs()
+	pipeCmd := fmt.Sprintf("set -o pipefail; docker exec %s tar -C %s %s -cf - . | docker exec -i %s tar -C %s -xpf -",
+		srcContainer.GetContainerName(), srcPath, excludeArgs, g.container.GetContainerName(), workRepoPath)
 
 	// Execute on host (the test runner has access to docker)
 	res, err := srcContainer.r.Exec(srcContainer.ctx, ExecSpec{
