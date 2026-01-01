@@ -103,3 +103,14 @@ storytelling, and a reminder that production should be deliberate.
 - Before: `ssh jonnyzzz@rp16g 'stevedore version'` (escalated) — see if the update completed despite the interrupted session.
 - After: version now reports `536fe8e120d7`, confirming the self-update completed successfully.
 - Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the self-update log.
+- After: `git add blogs/04-production-raspberry-pi-deployment.md` completed.
+- Before: `git commit -m "blog: log self-update run"` — commit the self-update story updates.
+- After: commit `9371038` captured the self-update log entries.
+- Before: `git push` — publish the updated deployment log.
+- After: `git push` completed.
+- Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the final self-update log entries.
+- After: `git add blogs/04-production-raspberry-pi-deployment.md` completed.
+- Before: `git commit -m "blog: finish self-update log"` — commit the final self-update log entries.
+- After: blog log commit recorded.
+- Before: `git push` — publish the final self-update log update.
+- After: `git push` completed.
