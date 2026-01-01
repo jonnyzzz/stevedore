@@ -26,7 +26,7 @@ We test the installer by driving an Ubuntu “donor” container via `docker exe
    - a per-test host state directory into the donor at the same absolute path (so Docker volume mounts resolve on the host)
 3. Inside the donor:
    - install the Docker client via `apt` (we do not exercise the “install Docker on the host” branch yet)
-   - copy the checkout into a real working directory (e.g. `/work/stevedore`) using system tools (`cp -a`)
+   - copy the checkout into a real working directory (e.g. `/work/stevedore`) using a tar pipeline that excludes `.git`, `.tmp`, and local cache directories
    - run `./stevedore-install.sh` from that copied folder
 4. Validate using minimal `docker exec` calls:
    - the Stevedore container is running and has the expected restart policy (no systemd path in this test)

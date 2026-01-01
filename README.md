@@ -95,6 +95,7 @@ PRO (planned, documentation only for now):
 ### Prerequisites
 
 - Docker 24+
+- Docker Buildx (optional; installer falls back to legacy builder when unavailable)
 - Git
 - A host running Linux (tested on Ubuntu 22.04+, Raspberry Pi OS)
 

@@ -32,6 +32,7 @@ Looking for a place to start? Check out issues labeled [`good first issue`](http
 
 - Go 1.25 or later
 - Docker 24+ with Compose plugin
+- Docker Buildx (optional; BuildKit is used when available)
 - Git
 - A C toolchain (CGO) for `go-sqlcipher` (e.g. `gcc`/`clang` + libc headers)
 - Make (optional, but recommended)
