@@ -58,3 +58,37 @@ storytelling, and a reminder that production should be deliberate.
 - After: blog post committed with the production deployment narrative and log.
 - Before: `git push` — publish the deployment story alongside the latest code.
 - After: blog post pushed to `origin/main`.
+- Before: `git rev-parse HEAD` — record the local commit hash to compare against the Pi.
+- After: local HEAD is `1f9c53c796f1df52e729a21a58dad1b8d4035bfd`.
+- Before: `ssh jonnyzzz@rp16g 'stevedore version'` — capture the running binary version on the Pi.
+- After: Pi reports `stevedore 0.7.44` at commit `a79895ab54d1` (still the previous build).
+- Before: `ssh jonnyzzz@rp16g 'stevedore check stevedore'` — check whether the self-deployment sees the latest commit.
+- After: check reports `Updates available` (current `a79895ab54d1`, remote `1f9c53c796f1`).
+- Before: inspect the code paths that print deploy key instructions (repo add + installer) to add a GitHub CLI command.
+- After: repo add instructions live in `main.go` (`runRepoTo`), and installer instructions are in `stevedore-install.sh`.
+- Before: `go test ./...` — run the full Go test suite after adding the GitHub CLI deploy key guidance.
+- After: `go test ./...` passed (unit + integration packages).
+- Before: `go vet ./...` — confirm no new vet warnings after the CLI output changes.
+- After: `go vet ./...` reported no issues.
+- Before: `git add main.go` — stage the CLI output change for the GitHub deploy key command.
+- After: `git add main.go` failed with `fatal: Unable to create '/Users/jonnyzzz/Work/stevedore/.git/index.lock': Operation not permitted`.
+- Before: `ls -ld .git` — verify repository metadata permissions after the index.lock error.
+- After: `.git` is owned by `jonnyzzz` with writable permissions (`drwxr-xr-x`).
+- Before: `ls -lO .git` — check for immutable flags that could block index.lock creation.
+- After: no immutable flags set in `.git`; need to retry staging with elevated permissions.
+- Before: `git add main.go` (escalated) — retry staging now that permissions were verified.
+- After: `git add main.go` succeeded with escalated permissions.
+- Before: `git commit -m "cli: suggest gh deploy key command"` — record the CLI output change.
+- After: commit `03ad99e` recorded the CLI deploy key guidance update.
+- Before: `git add docs/REPOSITORIES.md blogs/03-getting-started-with-stevedore.md` — stage doc updates with the gh CLI guidance.
+- After: docs staged for the GitHub CLI deploy key instructions.
+- Before: `git commit -m "docs: add gh deploy key instructions"` — commit the documentation updates.
+- After: commit `83cae76` captured the docs and blog tutorial updates.
+- Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the command log updates.
+- After: `git add blogs/04-production-raspberry-pi-deployment.md` completed (staging will be refreshed after remaining log entries).
+- Before: `git add blogs/04-production-raspberry-pi-deployment.md` (final) — refresh staging with the completed command log.
+- After: `git add blogs/04-production-raspberry-pi-deployment.md` completed (final staging).
+- Before: `git commit -m "blog: log gh deploy key guidance work"` — capture the updated command log.
+- After: blog log commit recorded.
+- Before: `git push` — publish the CLI guidance updates and the refreshed deployment log.
+- After: `git push` completed.
