@@ -94,6 +94,9 @@ storytelling, and a reminder that production should be deliberate.
 - After: `go test ./...` passed (unit + integration packages).
 - Before: `go vet ./...` — confirm no new vet warnings after the CLI output changes.
 - After: `go vet ./...` reported no issues.
+- Before: `git status -sb` — confirm the working tree before committing the validation log.
+- After: only the deployment blog is modified.
+- Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the validation log updates.
 - Before: `git add main.go` — stage the CLI output change for the GitHub deploy key command.
 - After: `git add main.go` failed with `fatal: Unable to create '/Users/jonnyzzz/Work/stevedore/.git/index.lock': Operation not permitted`.
 - Before: `ls -ld .git` — verify repository metadata permissions after the index.lock error.
@@ -119,6 +122,19 @@ storytelling, and a reminder that production should be deliberate.
 - Before: `git status -sb` — verify the working tree after pushing the docs updates.
 - After: only the deployment blog is modified.
 - Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the latest log entries.
+- After: `git add blogs/04-production-raspberry-pi-deployment.md` completed.
+- Before: `git commit -m "blog: log docs publish checks"` — commit the latest log entries.
+- After: commit `544ba13` captured the publish check log entries.
+- Before: `git push` — publish the latest blog log entry.
+- After: `git push` completed.
+- Before: `go build ./...` — confirm the codebase still compiles after doc updates.
+- After: `go build ./...` completed successfully.
+- Before: `go test ./...` — run the test suite after the doc updates.
+- After: `go test ./...` timed out after 120s (core packages passed; integration tests still running).
+- Before: `go test ./...` (longer timeout) — rerun to complete the integration tests.
+- After: `go test ./...` passed (integration took ~158s).
+- Before: `go vet ./...` — check for new vet warnings.
+- After: `go vet ./...` reported no issues.
 - Before: `sleep 18000` — wait 5 hours before rechecking the Raspberry Pi status.
 - After: `sleep 18000` completed.
 - Before: `ssh jonnyzzz@rp16g 'stevedore version'` (escalated) — verify the running version after the 5-hour wait.
