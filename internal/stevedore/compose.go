@@ -130,6 +130,15 @@ func (i *Instance) Deploy(ctx context.Context, deployment string, config Compose
 		"STEVEDORE_SHARED="+sharedDir,
 	)
 
+	// Add parameters from database as environment variables
+	paramNames, _ := i.ListParameters(deployment)
+	for _, name := range paramNames {
+		value, err := i.GetParameter(deployment, name)
+		if err == nil {
+			cmd.Env = append(cmd.Env, name+"="+string(value))
+		}
+	}
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

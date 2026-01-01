@@ -73,11 +73,18 @@ Current CLI commands:
 - `stevedore repo list` — List all deployments
 - `stevedore param set/get/list` — Manage encrypted parameters
 - `stevedore deploy sync <name>` — Git sync (local git inside container)
-- `stevedore deploy up <name>` — Deploy via docker compose
+- `stevedore deploy up <name>` — Deploy via docker compose (includes parameters as env vars)
 - `stevedore deploy down <name>` — Stop deployment
 - `stevedore status [name]` — Show deployment/container status
 - `stevedore check <name>` — Check for git updates (fetch only)
 - `stevedore self-update` — Update stevedore itself
+- `stevedore shared list` — List shared config namespaces
+- `stevedore shared read <namespace> [key]` — Read shared config (entire namespace or specific key)
+- `stevedore shared write <namespace> <key> <value>` — Write to shared config
+- `stevedore services list [--ingress] [--json]` — List services (optionally filter by ingress labels)
+- `stevedore token get <deployment>` — Get/create query token for deployment
+- `stevedore token regenerate <deployment>` — Regenerate query token
+- `stevedore token list` — List deployments with query tokens
 
 HTTP API (port 42107):
 
@@ -128,3 +135,51 @@ Integration tests (current state):
 - Tests must best-effort cleanup stale containers (use a predictable prefix like `stevedore-it-`).
 - GitServer helper (`tests/integration/git_server_test.go`) provides SSH Git server sidecar using Dockerfile.gitserver.
 - Deployment workflow test (`tests/integration/deploy_test.go`) exercises full lifecycle with GitServer.
+
+Shared configuration:
+
+- Cross-deployment configuration sharing via `/opt/stevedore/shared/`.
+- YAML files organized by namespace: `{namespace}.yaml`.
+- File locking via flock() for concurrent access safety.
+- Environment variable `STEVEDORE_SHARED` points to this directory in all deployments.
+- See `internal/stevedore/shared.go` for implementation.
+- Tests in `internal/stevedore/shared_test.go` verify read/write/list operations.
+
+Service discovery:
+
+- Cross-deployment service discovery via Docker container labels.
+- Services declare ingress routing via `stevedore.ingress.*` labels.
+- Label schema:
+  - `stevedore.ingress.enabled=true` — Enable ingress for this service
+  - `stevedore.ingress.subdomain=myapp` — Subdomain for routing
+  - `stevedore.ingress.port=8080` — Port to route to
+  - `stevedore.ingress.websocket=true` — Enable WebSocket support
+  - `stevedore.ingress.healthcheck=/health` — Health check path
+- CLI: `stevedore services list [--ingress] [--json]`
+- See `internal/stevedore/services.go` for implementation.
+- Tests in `internal/stevedore/services_test.go` verify label parsing.
+
+Query socket API:
+
+- Unix domain socket at `/var/run/stevedore/query.sock` for read-only service queries.
+- Designed for services like stevedore-dyndns to discover other deployments.
+- Authentication via `Authorization: Bearer <token>` header (token from `stevedore token get`).
+- Endpoints:
+  - `GET /healthz` — Health check (no auth required)
+  - `GET /services` — List all services
+  - `GET /services?ingress=true` — List services with ingress enabled
+  - `GET /deployments` — List all deployments
+  - `GET /status/{name}` — Get deployment status
+  - `GET /poll?since={timestamp}` — Long-poll for deployment changes
+- Long-polling: clients can poll `/poll` which blocks until deployment changes occur.
+- Database migration v4 adds `query_tokens` table.
+- See `internal/stevedore/query_socket.go` and `query_token.go` for implementation.
+- Tests in `internal/stevedore/query_socket_test.go` and `query_token_test.go`.
+
+Bug fix requirements:
+
+- All bugs must be fixed using test-first approach.
+- First add a failing test that reproduces the bug.
+- Then implement the fix to make the test pass.
+- Tests must verify the fix works and prevent regression.
+- Integration tests are preferred for end-to-end bug verification.

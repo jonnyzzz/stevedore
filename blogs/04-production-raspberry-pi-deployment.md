@@ -97,6 +97,11 @@ storytelling, and a reminder that production should be deliberate.
 - Before: `git status -sb` — confirm the working tree before committing the validation log.
 - After: only the deployment blog is modified.
 - Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the validation log updates.
+- After: `git add blogs/04-production-raspberry-pi-deployment.md` completed.
+- Before: `git commit -m "blog: log docs validation run"` — commit the compile/test log entries.
+- After: commit `99bc09a` captured the validation run log.
+- Before: `git push` — publish the validation log update.
+- After: `git push` completed.
 - Before: `git add main.go` — stage the CLI output change for the GitHub deploy key command.
 - After: `git add main.go` failed with `fatal: Unable to create '/Users/jonnyzzz/Work/stevedore/.git/index.lock': Operation not permitted`.
 - Before: `ls -ld .git` — verify repository metadata permissions after the index.lock error.

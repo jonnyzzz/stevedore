@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jonnyzzz/stevedore/internal/stevedore"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -115,6 +117,27 @@ func executeCommand(instance *stevedore.Instance, args []string) (output string,
 
 	case "self-update":
 		if err := runSelfUpdateTo(instance, &buf); err != nil {
+			buf.WriteString(fmt.Sprintf("ERROR: %v\n", err))
+			return buf.String(), 1
+		}
+		return buf.String(), 0
+
+	case "shared":
+		if err := runSharedTo(instance, args[1:], &buf); err != nil {
+			buf.WriteString(fmt.Sprintf("ERROR: %v\n", err))
+			return buf.String(), 1
+		}
+		return buf.String(), 0
+
+	case "services":
+		if err := runServicesTo(instance, args[1:], &buf); err != nil {
+			buf.WriteString(fmt.Sprintf("ERROR: %v\n", err))
+			return buf.String(), 1
+		}
+		return buf.String(), 0
+
+	case "token":
+		if err := runTokenTo(instance, args[1:], &buf); err != nil {
 			buf.WriteString(fmt.Sprintf("ERROR: %v\n", err))
 			return buf.String(), 1
 		}
@@ -546,6 +569,241 @@ func runParamTo(instance *stevedore.Instance, args []string, w io.Writer) error 
 	}
 }
 
+func runSharedTo(instance *stevedore.Instance, args []string, w io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("shared: missing subcommand (list|read|write)")
+	}
+
+	switch args[0] {
+	case "list":
+		if len(args) != 1 {
+			return errors.New("usage: shared list")
+		}
+		namespaces, err := instance.ListSharedNamespaces()
+		if err != nil {
+			return err
+		}
+		if len(namespaces) == 0 {
+			_, _ = fmt.Fprintln(w, "No shared namespaces found")
+			return nil
+		}
+		for _, ns := range namespaces {
+			_, _ = fmt.Fprintln(w, ns)
+		}
+		return nil
+
+	case "read":
+		if len(args) < 2 {
+			return errors.New("usage: shared read <namespace> [key]")
+		}
+		namespace := args[1]
+
+		if len(args) == 2 {
+			// Read entire namespace
+			raw, err := instance.ReadSharedRaw(namespace)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprint(w, raw)
+			return nil
+		}
+
+		// Read specific key
+		key := args[2]
+		value, err := instance.ReadSharedKey(namespace, key)
+		if err != nil {
+			return err
+		}
+
+		// Format output based on value type
+		switch v := value.(type) {
+		case string:
+			_, _ = fmt.Fprintln(w, v)
+		case map[string]interface{}, []interface{}:
+			// Output as YAML for complex types
+			out, err := formatAsYAML(value)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprint(w, out)
+		default:
+			_, _ = fmt.Fprintf(w, "%v\n", v)
+		}
+		return nil
+
+	case "write":
+		if len(args) < 4 {
+			return errors.New("usage: shared write <namespace> <key> <value>")
+		}
+		namespace := args[1]
+		key := args[2]
+		valueStr := strings.Join(args[3:], " ")
+
+		// Try to parse as YAML (allows structured values)
+		var value interface{}
+		if err := parseYAMLValue(valueStr, &value); err != nil {
+			// Fallback to string if YAML parsing fails
+			value = valueStr
+		}
+
+		if err := instance.WriteShared(namespace, key, value); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(w, "Set %s.%s\n", namespace, key)
+		return nil
+
+	default:
+		return fmt.Errorf("shared: unknown subcommand: %s", args[0])
+	}
+}
+
+func formatAsYAML(v interface{}) (string, error) {
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func parseYAMLValue(s string, v *interface{}) error {
+	return yaml.Unmarshal([]byte(s), v)
+}
+
+func runTokenTo(instance *stevedore.Instance, args []string, w io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("token: missing subcommand (get|regenerate|list)")
+	}
+
+	switch args[0] {
+	case "get":
+		if len(args) != 2 {
+			return errors.New("usage: token get <deployment>")
+		}
+		deployment := args[1]
+
+		// EnsureQueryToken creates if not exists
+		token, err := instance.EnsureQueryToken(deployment)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(w, token)
+		return nil
+
+	case "regenerate":
+		if len(args) != 2 {
+			return errors.New("usage: token regenerate <deployment>")
+		}
+		deployment := args[1]
+
+		token, err := instance.RegenerateQueryToken(deployment)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(w, "New token for %s:\n%s\n", deployment, token)
+		return nil
+
+	case "list":
+		if len(args) != 1 {
+			return errors.New("usage: token list")
+		}
+
+		tokens, err := instance.ListQueryTokens()
+		if err != nil {
+			return err
+		}
+
+		if len(tokens) == 0 {
+			_, _ = fmt.Fprintln(w, "No query tokens found")
+			return nil
+		}
+
+		for deployment := range tokens {
+			_, _ = fmt.Fprintln(w, deployment)
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("token: unknown subcommand: %s", args[0])
+	}
+}
+
+func runServicesTo(instance *stevedore.Instance, args []string, w io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("services: missing subcommand (list)")
+	}
+
+	ctx := context.Background()
+
+	switch args[0] {
+	case "list":
+		// Parse --ingress flag
+		ingressOnly := false
+		jsonOutput := false
+		for _, arg := range args[1:] {
+			switch arg {
+			case "--ingress":
+				ingressOnly = true
+			case "--json":
+				jsonOutput = true
+			}
+		}
+
+		var services []stevedore.Service
+		var err error
+
+		if ingressOnly {
+			services, err = instance.ListIngressServices(ctx)
+		} else {
+			services, err = instance.ListServices(ctx)
+		}
+		if err != nil {
+			return err
+		}
+
+		if len(services) == 0 {
+			if ingressOnly {
+				_, _ = fmt.Fprintln(w, "No services with ingress enabled")
+			} else {
+				_, _ = fmt.Fprintln(w, "No services found")
+			}
+			return nil
+		}
+
+		if jsonOutput {
+			data, err := json.MarshalIndent(services, "", "  ")
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintln(w, string(data))
+			return nil
+		}
+
+		// Table output
+		for _, svc := range services {
+			status := "stopped"
+			if svc.Running {
+				status = "running"
+			}
+
+			line := fmt.Sprintf("%-15s %-15s %-10s", svc.Deployment, svc.ServiceName, status)
+
+			if svc.Ingress != nil && svc.Ingress.Enabled {
+				ingress := fmt.Sprintf(" ingress:%s:%d", svc.Ingress.Subdomain, svc.Ingress.Port)
+				if svc.Ingress.WebSocket {
+					ingress += " ws"
+				}
+				line += ingress
+			}
+
+			_, _ = fmt.Fprintln(w, line)
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("services: unknown subcommand: %s", args[0])
+	}
+}
+
 func printUpstreamWarning() {
 	repo := strings.TrimSpace(os.Getenv("STEVEDORE_SOURCE_REPO"))
 	ref := strings.TrimSpace(os.Getenv("STEVEDORE_SOURCE_REF"))
@@ -605,6 +863,13 @@ func printUsageTo(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  stevedore param set <deployment> <name> <value> | ... --stdin")
 	_, _ = fmt.Fprintln(w, "  stevedore param get <deployment> <name>")
 	_, _ = fmt.Fprintln(w, "  stevedore param list <deployment>")
+	_, _ = fmt.Fprintln(w, "  stevedore shared list")
+	_, _ = fmt.Fprintln(w, "  stevedore shared read <namespace> [key]")
+	_, _ = fmt.Fprintln(w, "  stevedore shared write <namespace> <key> <value>")
+	_, _ = fmt.Fprintln(w, "  stevedore services list [--ingress] [--json]")
+	_, _ = fmt.Fprintln(w, "  stevedore token get <deployment>       # get/create query token")
+	_, _ = fmt.Fprintln(w, "  stevedore token regenerate <deployment># regenerate query token")
+	_, _ = fmt.Fprintln(w, "  stevedore token list                   # list deployments with tokens")
 }
 
 func buildInfoSummary() string {

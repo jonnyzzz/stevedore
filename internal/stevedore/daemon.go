@@ -10,23 +10,25 @@ import (
 
 // DaemonConfig holds configuration for the daemon.
 type DaemonConfig struct {
-	AdminKey      string
-	ListenAddr    string
-	Version       string
-	Build         string        // Git commit or build hash for strict version matching
-	MinPollTime   time.Duration // Minimum time between poll cycles (default: 30s)
-	SyncTimeout   time.Duration // Timeout for sync operations (default: 5m)
-	DeployTimeout time.Duration // Timeout for deploy operations (default: 10m)
+	AdminKey        string
+	ListenAddr      string
+	Version         string
+	Build           string        // Git commit or build hash for strict version matching
+	MinPollTime     time.Duration // Minimum time between poll cycles (default: 30s)
+	SyncTimeout     time.Duration // Timeout for sync operations (default: 5m)
+	DeployTimeout   time.Duration // Timeout for deploy operations (default: 10m)
+	QuerySocketPath string        // Path for query socket (default: /var/run/stevedore/query.sock)
 }
 
 // Daemon manages the polling loop and HTTP server.
 type Daemon struct {
-	instance *Instance
-	db       *sql.DB
-	config   DaemonConfig
-	server   *Server
-	mu       sync.Mutex
-	syncing  map[string]bool // Track which deployments are currently syncing
+	instance    *Instance
+	db          *sql.DB
+	config      DaemonConfig
+	server      *Server
+	queryServer *QueryServer
+	mu          sync.Mutex
+	syncing     map[string]bool // Track which deployments are currently syncing
 }
 
 // NewDaemon creates a new daemon instance.
@@ -43,6 +45,9 @@ func NewDaemon(instance *Instance, db *sql.DB, config DaemonConfig) *Daemon {
 	if config.DeployTimeout == 0 {
 		config.DeployTimeout = 10 * time.Minute
 	}
+	if config.QuerySocketPath == "" {
+		config.QuerySocketPath = DefaultQuerySocketPath
+	}
 
 	d := &Daemon{
 		instance: instance,
@@ -56,6 +61,8 @@ func NewDaemon(instance *Instance, db *sql.DB, config DaemonConfig) *Daemon {
 		ListenAddr: config.ListenAddr,
 	}, config.Version, config.Build)
 
+	d.queryServer = NewQueryServer(instance, config.QuerySocketPath)
+
 	return d
 }
 
@@ -66,12 +73,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 
+	// Start query socket server in background
+	go func() {
+		if err := d.queryServer.Start(ctx); err != nil {
+			log.Printf("Query server error: %v", err)
+		}
+	}()
+
 	// Run polling loop
 	d.runPollLoop(ctx)
 
 	// Shutdown HTTP server
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// Stop query server
+	_ = d.queryServer.Stop()
 
 	return d.server.Shutdown(shutdownCtx)
 }
@@ -227,6 +244,9 @@ func (d *Daemon) syncDeployment(parentCtx context.Context, deployment string) {
 
 	log.Printf("Deployed %s: project=%s, services=%v",
 		deployment, deployResult.ProjectName, deployResult.Services)
+
+	// Notify query server of deployment change
+	d.queryServer.NotifyChange()
 }
 
 // shortCommit returns the first 12 characters of a commit hash.

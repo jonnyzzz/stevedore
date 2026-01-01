@@ -66,6 +66,18 @@ ALTER TABLE repositories ADD COLUMN poll_interval_seconds INTEGER NOT NULL DEFAU
 ALTER TABLE repositories ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;
 `,
 	},
+	{
+		Version:     4,
+		Description: "Add query tokens for read-only API access",
+		Up: `
+CREATE TABLE IF NOT EXISTS query_tokens (
+	deployment TEXT PRIMARY KEY,
+	token TEXT NOT NULL UNIQUE,
+	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
+	FOREIGN KEY (deployment) REFERENCES deployments(name) ON DELETE CASCADE
+);
+`,
+	},
 }
 
 // CurrentSchemaVersion returns the latest migration version.
