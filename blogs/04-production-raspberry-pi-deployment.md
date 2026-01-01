@@ -162,3 +162,15 @@ systemd-managed control plane) and keep iterating on the onboarding docs as more
 this path.
 
 - Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the success-story blog expansion.
+- After: `git add blogs/04-production-raspberry-pi-deployment.md` completed.
+- Before: `git commit -m "blog: expand production success story"` — commit the expanded success narrative.
+- After: commit `42f188e` captured the expanded success story and outcome section.
+- Before: `git push` — publish the updated blog post.
+- After: `git push` completed.
+- Before: `git status -sb` — review documentation updates after the latest changes.
+- After: changes staged for README and docs (`README.md`, `docs/ARCHITECTURE.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/REPOSITORIES.md`, `docs/STATE_LAYOUT.md`) plus the deployment blog itself.
+- Before: `git add README.md docs/ARCHITECTURE.md docs/IMPLEMENTATION_PLAN.md docs/REPOSITORIES.md docs/STATE_LAYOUT.md` — stage the documentation refresh.
+- After: documentation updates staged.
+- Before: `git commit -m "docs: refresh deployment prep guidance"` — commit README and docs updates.
+- After: commit `d39c0b9` captured the documentation refresh.
+- Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the updated deployment log for the docs work.
