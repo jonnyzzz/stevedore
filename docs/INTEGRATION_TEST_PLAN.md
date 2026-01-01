@@ -130,6 +130,45 @@ Located in `tests/integration/testdata/simple-app/`:
 - Health status reports correctly
 - `deploy down` removes all containers
 
+## Query Socket Test
+
+Implementation: `tests/integration/query_socket_test.go`
+
+This test exercises the query socket API for inter-service communication:
+
+### Test Flow
+
+1. **Install Stevedore** with query socket enabled
+2. **Deploy application** with ingress labels (`stevedore.ingress.*`)
+3. **Generate query token** via `stevedore token get`
+4. **Test API endpoints** via Unix socket:
+   - `GET /healthz` (unauthenticated health check)
+   - `GET /deployments` (list all deployments)
+   - `GET /services` (list all services with container info)
+   - `GET /services?ingress=true` (filter to ingress-enabled services)
+   - `GET /status/{name}` (detailed deployment status)
+   - `GET /poll` (long-polling for changes)
+5. **Test authentication** (401 for missing/invalid tokens)
+6. **Test token management** (get, regenerate, list)
+
+### Ingress App Testdata
+
+Located in `tests/integration/testdata/ingress-app/`:
+
+- `docker-compose.yaml`: Service with `stevedore.ingress.*` labels
+- `Dockerfile`: Python HTTP server
+- `server.py`: Endpoints for /health, /version, /env
+
+### What We Assert
+
+- Query socket is accessible at `/var/run/stevedore/query.sock`
+- `/healthz` returns 200 without authentication
+- Protected endpoints require valid Bearer token
+- `/services` returns containers with ingress configuration
+- `/services?ingress=true` filters to enabled services only
+- Token lifecycle works (create, regenerate, list)
+- Invalid tokens are rejected with 401
+
 ## Related Integration Coverage
 
 The integration test package (`tests/integration/`) now contains:
@@ -140,6 +179,9 @@ The integration test package (`tests/integration/`) now contains:
 4. **TestMonitoringWorkflow**: Git check + sync-clean behavior
 5. **TestGitServer_Basic**: Git server helper validation
 6. **TestSelfUpgrade**: Self-update workflow (macOS requires Docker Desktop file sharing for bind mounts)
+7. **TestQuerySocketWorkflow**: Query socket API endpoints and authentication
+8. **TestQuerySocketLongPolling**: Long-polling for deployment changes
+9. **TestQuerySocketTokenManagement**: Token lifecycle (create, regenerate, list)
 
 ## Running Locally
 

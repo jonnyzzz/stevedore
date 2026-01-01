@@ -183,3 +183,43 @@ Bug fix requirements:
 - Then implement the fix to make the test pass.
 - Tests must verify the fix works and prevent regression.
 - Integration tests are preferred for end-to-end bug verification.
+
+GitHub issue workflow:
+
+- Review issues with `gh issue list` and `gh issue view <number>`.
+- For feature requests, ask clarifying questions before implementation:
+  - Post questions as issue comments via `gh issue comment`
+  - Ask about implementation approach preferences
+  - Clarify scope and priorities
+  - Wait for responses before proceeding
+- When implementing a fix:
+  - Create tests first (test-first approach)
+  - Implement the fix
+  - Update documentation (CLAUDE.md, docs/*.md)
+  - Run `go test ./...` to verify all tests pass
+- When closing issues, add detailed implementation comments:
+  - List all files created/modified
+  - Describe code changes with file:line references
+  - Explain how the fix works
+  - Reference test files that verify the fix
+  - Include CLI usage examples if applicable
+  - Link to relevant documentation
+- Example close comment format:
+  ```
+  ## Implementation Details
+
+  ### Files Created/Modified:
+  - `internal/stevedore/foo.go` - Core implementation
+  - `internal/stevedore/foo_test.go` - Unit tests
+  - `main.go` - CLI command
+
+  ### How It Works:
+  [Explanation of the implementation]
+
+  ### Tests Added:
+  [List of test functions and what they verify]
+
+  ### Documentation:
+  [Links to updated docs]
+  ```
+- Use `gh issue close <number>` after implementation is complete and tests pass.
