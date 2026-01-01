@@ -116,6 +116,9 @@ storytelling, and a reminder that production should be deliberate.
 - After: blog log commit recorded.
 - Before: `git push` — publish the CLI guidance updates and the refreshed deployment log.
 - After: `git push` completed.
+- Before: `git status -sb` — verify the working tree after pushing the docs updates.
+- After: only the deployment blog is modified.
+- Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the latest log entries.
 - Before: `sleep 18000` — wait 5 hours before rechecking the Raspberry Pi status.
 - After: `sleep 18000` completed.
 - Before: `ssh jonnyzzz@rp16g 'stevedore version'` (escalated) — verify the running version after the 5-hour wait.
@@ -140,6 +143,10 @@ storytelling, and a reminder that production should be deliberate.
 - After: version now reports `536fe8e120d7`, confirming the self-update completed successfully.
 - Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the self-update log.
 - After: `git add blogs/04-production-raspberry-pi-deployment.md` completed.
+- Before: `git commit -m "blog: log docs refresh work"` — commit the updated command log entries.
+- After: commit `4a17aa8` captured the docs refresh command log.
+- Before: `git push` — publish documentation updates and the refreshed log.
+- After: `git push` completed.
 - Before: `git commit -m "blog: log self-update run"` — commit the self-update story updates.
 - After: commit `9371038` captured the self-update log entries.
 - Before: `git push` — publish the updated deployment log.
@@ -174,3 +181,4 @@ this path.
 - Before: `git commit -m "docs: refresh deployment prep guidance"` — commit README and docs updates.
 - After: commit `d39c0b9` captured the documentation refresh.
 - Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the updated deployment log for the docs work.
+- After: `git add blogs/04-production-raspberry-pi-deployment.md` completed.
