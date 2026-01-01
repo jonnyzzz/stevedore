@@ -92,3 +92,14 @@ storytelling, and a reminder that production should be deliberate.
 - After: blog log commit recorded.
 - Before: `git push` — publish the CLI guidance updates and the refreshed deployment log.
 - After: `git push` completed.
+- Before: `ssh jonnyzzz@rp16g 'stevedore self-update'` — trigger the self-update on the Pi to pull the latest commits.
+- After: command failed with `ssh: Could not resolve hostname rp16g: -65563` (needs network access).
+- Before: `ssh jonnyzzz@rp16g 'stevedore self-update'` (escalated) — retry with network access enabled.
+- After: command timed out locally after 10s; output shows sync to `main@536fe8e`, backup image tagged, and build started (`stevedore:latest`).
+- Before: `ssh jonnyzzz@rp16g 'stevedore version'` (escalated) — confirm whether the self-update completed.
+- After: version still reports `a79895ab54d1`, so the self-update has not applied yet.
+- Before: `ssh jonnyzzz@rp16g 'stevedore self-update'` (escalated, longer timeout) — retry to capture full update output.
+- After: output again stops at `Building new stevedore image: stevedore:latest` and the SSH command exits with code 137.
+- Before: `ssh jonnyzzz@rp16g 'stevedore version'` (escalated) — see if the update completed despite the interrupted session.
+- After: version now reports `536fe8e120d7`, confirming the self-update completed successfully.
+- Before: `git add blogs/04-production-raspberry-pi-deployment.md` — stage the self-update log.
