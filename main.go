@@ -272,9 +272,16 @@ func runRepoTo(instance *stevedore.Instance, args []string, w io.Writer) error {
 		_, _ = fmt.Fprintf(w, "Repository registered: %s\n", deployment)
 		_, _ = fmt.Fprintf(w, "\nAdd this public key as a read-only Deploy Key:\n\n%s\n\n", publicKey)
 
+		publicKeyLine := strings.TrimSpace(publicKey)
+
 		// Show GitHub deploy key URL if it's a GitHub repository
-		if deployKeyURL := githubDeployKeyURL(url); deployKeyURL != "" {
-			_, _ = fmt.Fprintf(w, "GitHub Deploy Keys URL:\n  %s\n\n", deployKeyURL)
+		if repoSlug := githubRepoSlug(url); repoSlug != "" {
+			_, _ = fmt.Fprintf(w, "GitHub Deploy Keys URL:\n  %s\n\n", githubDeployKeyURLFromSlug(repoSlug))
+			_, _ = fmt.Fprintf(w, "GitHub CLI (read-only):\n")
+			_, _ = fmt.Fprintf(w, "  gh api -X POST repos/%s/keys \\\n", repoSlug)
+			_, _ = fmt.Fprintf(w, "    -f title=\"stevedore-%s\" \\\n", deployment)
+			_, _ = fmt.Fprintf(w, "    -f key=\"%s\" \\\n", publicKeyLine)
+			_, _ = fmt.Fprintf(w, "    -F read_only=true\n\n")
 			_, _ = fmt.Fprintf(w, "Steps:\n")
 			_, _ = fmt.Fprintf(w, "  1. Open the URL above in your browser\n")
 			_, _ = fmt.Fprintf(w, "  2. Click 'Add deploy key'\n")
@@ -644,7 +651,7 @@ func shortCommit(hash string) string {
 
 // githubDeployKeyURL extracts the GitHub repository path from various URL formats
 // and returns the deploy keys settings URL, or empty string if not a GitHub URL.
-func githubDeployKeyURL(repoURL string) string {
+func githubRepoSlug(repoURL string) string {
 	repoURL = strings.TrimSpace(repoURL)
 
 	var owner, repo string
@@ -682,5 +689,17 @@ func githubDeployKeyURL(repoURL string) string {
 		return ""
 	}
 
-	return fmt.Sprintf("https://github.com/%s/%s/settings/keys", owner, repo)
+	return fmt.Sprintf("%s/%s", owner, repo)
+}
+
+func githubDeployKeyURLFromSlug(repoSlug string) string {
+	if repoSlug == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("https://github.com/%s/settings/keys", repoSlug)
+}
+
+func githubDeployKeyURL(repoURL string) string {
+	return githubDeployKeyURLFromSlug(githubRepoSlug(repoURL))
 }
