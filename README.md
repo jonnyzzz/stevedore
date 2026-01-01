@@ -71,7 +71,7 @@ Community (implemented):
 - **State on disk** — Everything under a single host directory (`/opt/stevedore` by default)
 - **Repo onboarding** — Generates an SSH deploy key per repository with GitHub URL suggestion
 - **Parameters store** — SQLCipher-encrypted SQLite database + install-generated key
-- **Git sync** — Local git sync inside the Stevedore container with optional cleanup (`stevedore deploy sync`); worker-container isolation is planned
+- **Git sync** — Git operations run in isolated `alpine/git` worker containers with optional cleanup (`stevedore deploy sync`)
 - **Compose deployment** — Deploy via Docker Compose with health monitoring (`stevedore deploy up/down`)
 - **Status + health** — Container health monitoring (`stevedore status`)
 - **Upstream main warning** — Warns if installed from `jonnyzzz/stevedore` `main`
@@ -135,6 +135,16 @@ the container with a Docker restart policy (`--restart unless-stopped`).
 If the installer detects it is running from a Git checkout, it also bootstraps a `stevedore`
 deployment and prints an SSH Deploy Key for your fork (read-only).
 
+### Prepare a Repository (Service)
+
+Before you register a deployment, make sure the repository is ready to run under Docker Compose:
+
+- Add a Compose file at repo root (`docker-compose.yaml` preferred).
+- Define a `services` entry with `build:` or `image:` (or both).
+- Add a healthcheck if you want `stevedore status` to report healthy/unhealthy.
+- Use the Stevedore-provided volume env vars (`STEVEDORE_DATA`, `STEVEDORE_LOGS`, `STEVEDORE_SHARED`).
+- Keep secrets out of git; use `stevedore param set` or environment variables.
+
 ### Add Your First Repository
 
 ```bash
@@ -143,7 +153,20 @@ stevedore repo add homepage git@github.com:<you>/homepage.git --branch main
 
 # Show the public key (add to GitHub as Deploy Key)
 stevedore repo key homepage
+```
 
+Add the deploy key as read-only (GitHub CLI):
+
+```bash
+gh api -X POST repos/<you>/homepage/keys \
+  -f title="stevedore-homepage" \
+  -f key="$(stevedore repo key homepage)" \
+  -F read_only=true
+```
+
+Use `-F read_only=true` so the API treats the value as a boolean.
+
+```bash
 # Sync the repository (clones via worker container)
 stevedore deploy sync homepage
 

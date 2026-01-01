@@ -12,7 +12,17 @@ deployment automatically (so Stevedore can manage itself later).
 - Alternative: HTTPS with tokens (broader scope than deploy keys).
 - Future hardening (v4): keep private keys encrypted in the SQLCipher DB and forward via SSH agent.
 
-## Add a Repository
+## Prepare a Repository (Service)
+
+Before registering a deployment, make sure the repo is ready to run under Docker Compose:
+
+- Add a Compose file at repo root (`docker-compose.yaml` preferred).
+- Include at least one service with `build:` or `image:` so Compose can start containers.
+- Add a healthcheck if you want `stevedore status` to report healthy/unhealthy.
+- Use `${STEVEDORE_DATA}`, `${STEVEDORE_LOGS}`, `${STEVEDORE_SHARED}` for persistent and shared data.
+- Keep secrets out of git; use `stevedore param set` or environment variables.
+
+## Create the Deployment (Service)
 
 ```bash
 stevedore repo add <deployment> <git-url> --branch <branch>
@@ -28,6 +38,8 @@ stevedore repo add homepage git@github.com:acme/homepage.git --branch main
 
 This creates the deployment state directory, generates an SSH keypair, and stores the repository URL
 and branch.
+
+Deployments are applied with a Compose project name of `stevedore-<deployment>`.
 
 ## Get the Public Deploy Key
 
@@ -52,6 +64,19 @@ gh api -X POST repos/<owner>/<repo>/keys \
   -f key="$(stevedore repo key <deployment>)" \
   -F read_only=true
 ```
+
+Use `-F read_only=true` so the API treats the value as a boolean.
+
+## Deploy the Service
+
+```bash
+stevedore deploy sync <deployment>
+stevedore deploy up <deployment>
+stevedore status <deployment>
+stevedore check <deployment>
+```
+
+`stevedore deploy down <deployment>` stops the deployment when needed.
 
 ## Where the Keys Live
 

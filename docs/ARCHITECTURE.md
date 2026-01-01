@@ -9,7 +9,7 @@ forward-looking; not everything here is implemented yet.
 - **Minimal host dependencies**: “Docker-first”, tested on Ubuntu and Raspberry Pi OS.
 - **State on disk**: everything persisted under one host directory (`/opt/stevedore` by default).
 - **Resilience**: survives reboots, restarts cleanly, does not take down workloads when Stevedore restarts.
-- **Isolation**: potentially run risky operations (git, compose) in short-lived worker containers.
+- **Isolation**: run risky operations (git) in short-lived worker containers; compose isolation planned.
 
 ## Components
 
@@ -38,7 +38,7 @@ forward-looking; not everything here is implemented yet.
 Stevedore avoids running "mutable" or potentially risky operations in the long-running daemon
 container when feasible.
 
-- **Git worker** (available, not default): worker-container implementation exists in `internal/stevedore/git_worker.go`, but current sync/check paths use the git binary inside the Stevedore container (`GitSyncClean`, `GitCheckRemote`).
+- **Git worker** (implemented, default): sync and check operations run in an isolated `alpine/git` container (`internal/stevedore/git_worker.go`).
   - Uses deployment SSH key for authentication
   - Mounts state directory for checkout storage
   - Labels: `com.stevedore.managed=true`, `com.stevedore.role=git-worker`
@@ -173,9 +173,11 @@ Proposed approach:
 
 This keeps keys out of plaintext files and limits key exposure to in-memory usage.
 
-## Container Labels (planned, v3)
+## Container Labels (partial, v3)
 
-Add predictable labels to all created/managed containers, e.g.:
+Add predictable labels to all created/managed containers. Currently implemented for git workers; other container types are planned.
+
+Examples:
 
 - `com.stevedore.managed=true`
 - `com.stevedore.deployment=<name>`
