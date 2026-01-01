@@ -53,6 +53,15 @@ stevedore repo key my-app
 
 Copy that key. Go to your GitHub repo -> **Settings** -> **Deploy keys** -> **Add deploy key**. Paste it there. This gives Stevedore read-only access to just that repo.
 
+Prefer GitHub CLI? This does the same thing (read-only):
+
+```bash
+gh api -X POST repos/<YOUR_USERNAME>/my-web-app/keys \
+  -f title="stevedore-my-app" \
+  -f key="$(stevedore repo key my-app)" \
+  -F read_only=true
+```
+
 ## Step 3: Deploy!
 
 Now, kick off the first sync:

@@ -44,6 +44,15 @@ Add the printed public key to the Git hosting provider as a **read-only deploy k
 3. Paste the public key
 4. Keep **Allow write access** unchecked
 
+### GitHub CLI (read-only)
+
+```bash
+gh api -X POST repos/<owner>/<repo>/keys \
+  -f title="stevedore-<deployment>" \
+  -f key="$(stevedore repo key <deployment>)" \
+  -F read_only=true
+```
+
 ## Where the Keys Live
 
 Current:
