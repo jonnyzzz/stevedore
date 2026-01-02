@@ -50,37 +50,37 @@ func (s ContainerState) IsStopped() bool {
 // ContainerStatus holds status information for a container.
 type ContainerStatus struct {
 	// Container ID
-	ID string
+	ID string `json:"id"`
 	// Container name
-	Name string
+	Name string `json:"name"`
 	// Service name (from compose)
-	Service string
+	Service string `json:"service"`
 	// Image used
-	Image string
+	Image string `json:"image"`
 	// Current state
-	State ContainerState
+	State ContainerState `json:"state"`
 	// Health status (if health check is configured)
-	Health ContainerHealth
+	Health ContainerHealth `json:"health"`
 	// Status string (e.g., "Up 2 hours")
-	Status string
+	Status string `json:"status"`
 	// Exit code (if exited)
-	ExitCode int
+	ExitCode int `json:"exit_code"`
 	// Started at timestamp
-	StartedAt time.Time
+	StartedAt time.Time `json:"started_at"`
 }
 
 // DeploymentStatus holds the overall status of a deployment.
 type DeploymentStatus struct {
 	// Deployment name
-	Deployment string
+	Deployment string `json:"deployment"`
 	// Project name
-	ProjectName string
+	ProjectName string `json:"project_name"`
 	// List of containers
-	Containers []ContainerStatus
+	Containers []ContainerStatus `json:"containers"`
 	// Overall health (healthy if all containers are healthy/running)
-	Healthy bool
+	Healthy bool `json:"healthy"`
 	// Status message
-	Message string
+	Message string `json:"message"`
 }
 
 // dockerInspectResult matches the JSON output of docker inspect.
