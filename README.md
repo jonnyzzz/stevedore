@@ -82,6 +82,9 @@ Community (implemented — v0-3):
 - **Daemon polling loop** — Automated Git sync and deployment on changes
 - **HTTP API** — Health endpoint (`/healthz`) and admin API on port `42107`
 - **Self-update** — Stevedore updates itself via worker container
+- **Service discovery** — Label-based ingress routing via `stevedore.ingress.*` labels
+- **Query socket API** — Unix socket for read-only service queries (`/var/run/stevedore/query.sock`)
+- **Ingress support** — Works with [stevedore-dyndns](https://github.com/jonnyzzz/stevedore-dyndns) for dynamic DNS + HTTPS
 
 PRO (planned, documentation only for now):
 
@@ -323,6 +326,8 @@ logs retention.
 - `docs/STATE_LAYOUT.md`
 - `docs/REPOSITORIES.md`
 - `docs/SECRETS.md`
+- `docs/INGRESS.md` — Ingress configuration and stevedore-dyndns integration
+- `docs/QUERY_SOCKET_PROTOCOL.md` — Query socket API specification
 - `docs/INTEGRATION_TEST_PLAN.md`
 
 ## Architecture
