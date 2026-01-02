@@ -149,14 +149,22 @@ func TestQuerySocketWorkflow(t *testing.T) {
 	// Step 7: Test query socket endpoints
 	t.Log("Step 7: Testing query socket endpoints...")
 
-	// Install curl and socat in the donor container for socket testing
-	tc.ExecBashOK(nil, "apt-get update && apt-get install -y curl socat")
+	// Install curl inside the stevedore container for socket testing
+	// The query socket is inside the stevedore container, so we need to run curl there
+	tc.ExecBashOK(nil, fmt.Sprintf(`
+		docker exec %s sh -c "apk add --no-cache curl"
+	`, tc.StevedoreContainerName))
+
+	// Helper to run curl inside the stevedore container
+	curlInStevedore := func(args string) string {
+		return tc.ExecBashOK(nil, fmt.Sprintf(`
+			docker exec %s curl -s %s
+		`, tc.StevedoreContainerName, args))
+	}
 
 	// Test /healthz (no auth required)
 	t.Log("Testing /healthz endpoint...")
-	healthzOutput := tc.ExecBashOK(nil, fmt.Sprintf(`
-		curl -s --unix-socket %s http://localhost/healthz
-	`, querySocketPath))
+	healthzOutput := curlInStevedore(fmt.Sprintf(`--unix-socket %s http://localhost/healthz`, querySocketPath))
 	t.Logf("/healthz output: %s", healthzOutput)
 
 	if !strings.Contains(healthzOutput, `"status":"ok"`) {
@@ -165,9 +173,7 @@ func TestQuerySocketWorkflow(t *testing.T) {
 
 	// Test /deployments with auth
 	t.Log("Testing /deployments endpoint...")
-	deploymentsOutput := tc.ExecBashOK(nil, fmt.Sprintf(`
-		curl -s --unix-socket %s -H "Authorization: Bearer %s" http://localhost/deployments
-	`, querySocketPath, token))
+	deploymentsOutput := curlInStevedore(fmt.Sprintf(`--unix-socket %s -H "Authorization: Bearer %s" http://localhost/deployments`, querySocketPath, token))
 	t.Logf("/deployments output: %s", deploymentsOutput)
 
 	var deployments []map[string]string
@@ -188,9 +194,7 @@ func TestQuerySocketWorkflow(t *testing.T) {
 
 	// Test /services with auth
 	t.Log("Testing /services endpoint...")
-	servicesOutput := tc.ExecBashOK(nil, fmt.Sprintf(`
-		curl -s --unix-socket %s -H "Authorization: Bearer %s" http://localhost/services
-	`, querySocketPath, token))
+	servicesOutput := curlInStevedore(fmt.Sprintf(`--unix-socket %s -H "Authorization: Bearer %s" http://localhost/services`, querySocketPath, token))
 	t.Logf("/services output: %s", servicesOutput)
 
 	var services []map[string]interface{}
@@ -222,9 +226,7 @@ func TestQuerySocketWorkflow(t *testing.T) {
 
 	// Test /services?ingress=true filter
 	t.Log("Testing /services?ingress=true endpoint...")
-	ingressServicesOutput := tc.ExecBashOK(nil, fmt.Sprintf(`
-		curl -s --unix-socket %s -H "Authorization: Bearer %s" "http://localhost/services?ingress=true"
-	`, querySocketPath, token))
+	ingressServicesOutput := curlInStevedore(fmt.Sprintf(`--unix-socket %s -H "Authorization: Bearer %s" "http://localhost/services?ingress=true"`, querySocketPath, token))
 	t.Logf("/services?ingress=true output: %s", ingressServicesOutput)
 
 	var ingressServices []map[string]interface{}
@@ -243,9 +245,7 @@ func TestQuerySocketWorkflow(t *testing.T) {
 
 	// Test /status/{name}
 	t.Log("Testing /status/{name} endpoint...")
-	statusOutput := tc.ExecBashOK(nil, fmt.Sprintf(`
-		curl -s --unix-socket %s -H "Authorization: Bearer %s" "http://localhost/status/%s"
-	`, querySocketPath, token, deploymentName))
+	statusOutput := curlInStevedore(fmt.Sprintf(`--unix-socket %s -H "Authorization: Bearer %s" "http://localhost/status/%s"`, querySocketPath, token, deploymentName))
 	t.Logf("/status/%s output: %s", deploymentName, statusOutput)
 
 	var status map[string]interface{}
@@ -259,9 +259,7 @@ func TestQuerySocketWorkflow(t *testing.T) {
 
 	// Test authentication failure
 	t.Log("Testing authentication failure...")
-	authFailOutput := tc.ExecBashOK(nil, fmt.Sprintf(`
-		curl -s -w "%%{http_code}" --unix-socket %s http://localhost/deployments
-	`, querySocketPath))
+	authFailOutput := curlInStevedore(fmt.Sprintf(`-w "%%{http_code}" --unix-socket %s http://localhost/deployments`, querySocketPath))
 	t.Logf("Auth fail output: %s", authFailOutput)
 
 	if !strings.Contains(authFailOutput, "401") {
@@ -269,9 +267,7 @@ func TestQuerySocketWorkflow(t *testing.T) {
 	}
 
 	// Test invalid token
-	invalidTokenOutput := tc.ExecBashOK(nil, fmt.Sprintf(`
-		curl -s -w "%%{http_code}" --unix-socket %s -H "Authorization: Bearer invalid-token" http://localhost/deployments
-	`, querySocketPath))
+	invalidTokenOutput := curlInStevedore(fmt.Sprintf(`-w "%%{http_code}" --unix-socket %s -H "Authorization: Bearer invalid-token" http://localhost/deployments`, querySocketPath))
 	t.Logf("Invalid token output: %s", invalidTokenOutput)
 
 	if !strings.Contains(invalidTokenOutput, "401") {
@@ -318,8 +314,10 @@ func TestQuerySocketLongPolling(t *testing.T) {
 	t.Log("Installing stevedore...")
 	tc.ExecBashOKTimeout(env, fmt.Sprintf("cd %s && ./stevedore-install.sh", workDir), 10*time.Minute)
 
-	// Install curl
-	tc.ExecBashOK(nil, "apt-get update && apt-get install -y curl")
+	// Install curl inside the stevedore container for socket testing
+	tc.ExecBashOK(nil, fmt.Sprintf(`
+		docker exec %s sh -c "apk add --no-cache curl"
+	`, tc.StevedoreContainerName))
 
 	// Add a simple deployment for token generation
 	gs := NewGitServer(t)
@@ -371,8 +369,8 @@ func TestQuerySocketLongPolling(t *testing.T) {
 	t.Log("Testing /poll endpoint (should timeout without changes)...")
 	start := time.Now()
 	pollOutput := tc.ExecBashOK(nil, fmt.Sprintf(`
-		timeout 5 curl -s --unix-socket %s -H "Authorization: Bearer %s" "http://localhost/poll" || echo '{"timeout":true}'
-	`, querySocketPath, token))
+		docker exec %s sh -c 'timeout 5 curl -s --unix-socket %s -H "Authorization: Bearer %s" "http://localhost/poll" || echo "{\"timeout\":true}"'
+	`, tc.StevedoreContainerName, querySocketPath, token))
 	elapsed := time.Since(start)
 	t.Logf("/poll output after %v: %s", elapsed, pollOutput)
 
