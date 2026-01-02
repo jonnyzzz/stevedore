@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.1] - 2026-01-02
+
+### Fixed
+
+- **Query socket not exposed to host** - Installer now mounts `/var/run/stevedore` directory to the host, allowing client containers to access the query socket
+  - Resolves #6
+
+### Documentation
+
+- Added **Client Container Access** section to `docs/QUERY_SOCKET_PROTOCOL.md`
+  - Docker Compose configuration example
+  - Step-by-step access pattern explanation
+  - Token retrieval instructions
+  - Resolves #7
+
 ## [0.8.0] - 2026-01-02
 
 ### Added

@@ -182,9 +182,59 @@ The dyndns service can then:
 | 405 | Method not allowed |
 | 500 | Internal server error |
 
+## Client Container Access
+
+Client containers (like ingress controllers, monitoring, etc.) can access the query socket by mounting the socket directory from the host:
+
+### Docker Compose Configuration
+
+```yaml
+# docker-compose.yaml for a client container
+services:
+  my-service:
+    image: my-image
+    volumes:
+      - /var/run/stevedore:/var/run/stevedore:ro
+    environment:
+      - STEVEDORE_QUERY_TOKEN=${STEVEDORE_QUERY_TOKEN}
+```
+
+### Access Pattern
+
+1. The stevedore installer mounts `/var/run/stevedore` from the host into the stevedore container
+2. Stevedore creates the socket at `/var/run/stevedore/query.sock`
+3. The socket file appears on the host filesystem via the bind mount
+4. Client containers mount the same directory from the host
+5. Client containers access the socket at `/var/run/stevedore/query.sock`
+
+### Getting the Token
+
+Before deploying a client container, obtain a query token:
+
+```bash
+# Get or create a token for the deployment
+stevedore token get dyndns
+
+# The token can be passed as an environment variable
+export STEVEDORE_QUERY_TOKEN=$(stevedore token get dyndns)
+
+# Then deploy the service
+stevedore deploy up dyndns
+```
+
+### Example: Querying from a Container
+
+```bash
+# Inside a client container with the socket mounted
+curl -s --unix-socket /var/run/stevedore/query.sock \
+  -H "Authorization: Bearer $STEVEDORE_QUERY_TOKEN" \
+  http://localhost/services?ingress=true
+```
+
 ## Security Considerations
 
 1. **Read-only access**: The query socket only provides read access; no write operations are supported.
 2. **Token isolation**: Each deployment has its own token; compromising one doesn't affect others.
 3. **Socket permissions**: Socket is created with mode 0666 for container access.
 4. **No sensitive data**: Parameters and secrets are never exposed via this API.
+5. **Read-only mount**: Client containers should mount the socket directory read-only (`:ro`).

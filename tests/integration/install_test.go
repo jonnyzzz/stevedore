@@ -109,4 +109,11 @@ func TestInstaller_UbuntuDonorContainer(t *testing.T) {
 	if err != nil || res.ExitCode != 0 {
 		t.Fatalf("legacy parameter file exists (should not): %s", legacyParamFile)
 	}
+
+	// Verify query socket directory is mounted to host (Issue #6)
+	// The socket directory should be mounted so other containers can access it
+	mounts := donor.ExecOK("docker", "inspect", "-f", "{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}", donor.StevedoreContainerName)
+	if !strings.Contains(mounts, "/var/run/stevedore:/var/run/stevedore") {
+		t.Fatalf("expected query socket directory to be mounted, got mounts: %s", mounts)
+	}
 }

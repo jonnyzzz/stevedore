@@ -237,7 +237,8 @@ Type=simple
 Restart=always
 RestartSec=2
 ExecStartPre=-${docker_bin} rm -f ${STEVEDORE_CONTAINER_NAME}
-ExecStart=${docker_bin} run --name ${STEVEDORE_CONTAINER_NAME} --env-file ${STEVEDORE_CONTAINER_ENV} -p 42107:42107 -v /var/run/docker.sock:/var/run/docker.sock -v ${STEVEDORE_HOST_ROOT}:/opt/stevedore ${STEVEDORE_IMAGE}
+ExecStartPre=-/bin/mkdir -p /var/run/stevedore
+ExecStart=${docker_bin} run --name ${STEVEDORE_CONTAINER_NAME} --env-file ${STEVEDORE_CONTAINER_ENV} -p 42107:42107 -v /var/run/docker.sock:/var/run/docker.sock -v /var/run/stevedore:/var/run/stevedore -v ${STEVEDORE_HOST_ROOT}:/opt/stevedore ${STEVEDORE_IMAGE}
 ExecStop=-${docker_bin} stop ${STEVEDORE_CONTAINER_NAME}
 TimeoutStopSec=30
 
@@ -253,10 +254,12 @@ EOF
 start_container_without_systemd() {
   log "systemd not detected; starting container via docker restart policy"
   docker_cmd rm -f "${STEVEDORE_CONTAINER_NAME}" >/dev/null 2>&1 || true
+  mkdir -p /var/run/stevedore 2>/dev/null || true
   docker_cmd run -d --name "${STEVEDORE_CONTAINER_NAME}" --restart unless-stopped \
     --env-file "${STEVEDORE_CONTAINER_ENV}" \
     -p 42107:42107 \
     -v /var/run/docker.sock:/var/run/docker.sock \
+    -v /var/run/stevedore:/var/run/stevedore \
     -v "${STEVEDORE_HOST_ROOT}:/opt/stevedore" \
     "${STEVEDORE_IMAGE}" >/dev/null
 }
