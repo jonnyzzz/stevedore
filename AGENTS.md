@@ -223,3 +223,38 @@ GitHub issue workflow:
   [Links to updated docs]
   ```
 - Use `gh issue close <number>` after implementation is complete and tests pass.
+
+Release workflow:
+
+- Version is stored in `VERSION` file (single line, semver format: `MAJOR.MINOR.PATCH`).
+- Increment VERSION when adding new features:
+  - MAJOR: Breaking changes or major new functionality
+  - MINOR: New features, significant improvements
+  - PATCH: Bug fixes, documentation updates
+- Maintain `CHANGES.md` with release notes:
+  - Group changes by release version
+  - Use sections: Added, Fixed, Changed, Removed, Documentation
+  - Reference resolved issues with `Resolves #N`
+- Release process:
+  1. Increment VERSION file
+  2. Update CHANGES.md with new release section
+  3. Run `go test ./...` and `go build ./...`
+  4. Commit: `git commit -m "release: vX.Y.Z"`
+  5. Push and wait for CI to pass
+  6. Update resolved issues with release version comment
+  7. Deploy to production (rp16g) via `stevedore self-update`
+- After release, comment on closed issues:
+  ```
+  Released in v0.8.0. See CHANGES.md for details.
+  ```
+
+Self-update verification:
+
+- Before self-update: capture `stevedore version`, `docker ps` output
+- Run `stevedore self-update` on production host
+- After self-update: verify:
+  - New version is running (`stevedore version`)
+  - Control plane container was replaced (new uptime)
+  - Workload containers are still running (unchanged)
+  - All containers remain healthy (`stevedore doctor`)
+- Document any issues in the deployment blog or CHANGES.md
