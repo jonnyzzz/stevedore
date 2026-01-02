@@ -159,6 +159,36 @@ Service discovery:
 - See `internal/stevedore/services.go` for implementation.
 - Tests in `internal/stevedore/services_test.go` verify label parsing.
 
+Parameter-based ingress (alternative to labels):
+
+- For services where docker-compose.yaml cannot be modified (third-party images, upstream repos).
+- Use `STEVEDORE_INGRESS_<SERVICE>_*` parameters instead of container labels.
+- Service name convention: uppercase, dashes → underscores (e.g., `my-web-app` → `MY_WEB_APP`).
+- Parameter schema:
+  - `STEVEDORE_INGRESS_<SERVICE>_ENABLED` — Enable ingress (true/1/yes)
+  - `STEVEDORE_INGRESS_<SERVICE>_SUBDOMAIN` — Subdomain for routing
+  - `STEVEDORE_INGRESS_<SERVICE>_PORT` — Port to route to
+  - `STEVEDORE_INGRESS_<SERVICE>_WEBSOCKET` — Enable WebSocket support
+  - `STEVEDORE_INGRESS_<SERVICE>_HEALTHCHECK` — Health check path
+- Example: `stevedore param set myapp STEVEDORE_INGRESS_WEB_ENABLED true`
+- Container labels take precedence over parameters.
+- Service must be explicitly specified (no deployment-wide defaults).
+- See `internal/stevedore/services.go:parseIngressFromParams()` for implementation.
+
+Event notification system:
+
+- Real-time change notifications for dependent services (e.g., stevedore-dyndns).
+- Event types:
+  - `deployment.created` — New deployment added
+  - `deployment.updated` — Deploy up/sync completed
+  - `deployment.removed` — Deployment deleted
+  - `deployment.status_changed` — Container health/state changed
+  - `params.changed` — Parameter set/deleted
+- Event bus with in-memory pub/sub and configurable history.
+- `/poll` endpoint returns events array when changes detected.
+- See `internal/stevedore/events.go` for EventBus implementation.
+- See `internal/stevedore/query_socket.go:PublishEvent()` for publishing.
+
 Query socket API:
 
 - Unix domain socket at `/var/run/stevedore/query.sock` for read-only service queries.
@@ -258,3 +288,39 @@ Self-update verification:
   - Workload containers are still running (unchanged)
   - All containers remain healthy (`stevedore doctor`)
 - Document any issues in the deployment blog or CHANGES.md
+
+Development process (standard workflow):
+
+1. **Review GitHub issues**: `gh issue list` and `gh issue view <number>`
+2. **Ask clarifying questions**: Post questions as issue comments before implementing
+3. **Create tests first** (TDD): Write failing tests that verify the expected behavior
+4. **Implement the feature/fix**: Make tests pass
+5. **Run all tests**: `go test ./...` and `go build ./...`
+6. **Update documentation**: AGENTS.md, CHANGES.md, docs/*.md as needed
+7. **Increment VERSION**: MAJOR.MINOR.PATCH based on change type
+8. **Commit and push**: Wait for CI to pass
+9. **Close issues**: Add implementation details comment, then `gh issue close <number>`
+10. **Deploy to production**: `stevedore self-update` on rp16g host
+11. **Comment on issues**: "Released in vX.Y.Z. See CHANGES.md for details."
+
+Feature implementation checklist:
+
+- [ ] Read and understand the issue requirements
+- [ ] Ask clarifying questions if ambiguous
+- [ ] Write unit tests for the new functionality
+- [ ] Implement the feature
+- [ ] Run `go build ./...` and `go vet ./...`
+- [ ] Run `go test ./internal/stevedore/...`
+- [ ] Update AGENTS.md with new feature documentation
+- [ ] Update CHANGES.md with release notes
+- [ ] Increment VERSION file
+- [ ] Commit with descriptive message
+- [ ] Push and verify CI passes
+- [ ] Comment on issue with implementation details
+- [ ] Close the issue
+- [ ] Deploy to production and verify
+
+Known limitations (to be addressed):
+
+- Issue #8: Self-update does not update systemd service file when installer changes
+  - Workaround: Manually update `/etc/systemd/system/stevedore.service`

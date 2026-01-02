@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.0] - 2026-01-02
+
+### Added
+
+- **Parameter-based ingress configuration** - Configure ingress for services without modifying docker-compose.yaml
+  - Use `STEVEDORE_INGRESS_<SERVICE>_*` parameters (e.g., `STEVEDORE_INGRESS_WEB_ENABLED`)
+  - Service names normalized: uppercase, dashes → underscores
+  - Container labels take precedence over parameters
+  - Resolves #9
+
+- **Event notification system** - Real-time change notifications for dependent services
+  - Event types: `deployment.created`, `deployment.updated`, `deployment.removed`, `deployment.status_changed`, `params.changed`
+  - Enhanced `/poll` endpoint returns event details with `events` array
+  - Event bus with configurable history for `EventsSince()` queries
+  - Resolves #10
+
+### Changed
+
+- `ListServices()` now checks deployment parameters for ingress config when container labels are absent
+- `/poll` endpoint response includes `events` array when changes are detected
+
+### Documentation
+
+- Updated issue #9 with implementation clarifications
+- Created issue #10 for change notification system
+
 ## [0.8.1] - 2026-01-02
 
 ### Fixed

@@ -55,6 +55,16 @@ const (
 	LabelIngressHealthCheck = "stevedore.ingress.healthcheck"
 )
 
+// Parameter-based ingress configuration constants (Issue #9)
+const (
+	ParamIngressPrefix      = "STEVEDORE_INGRESS_"
+	ParamIngressEnabled     = "STEVEDORE_INGRESS_ENABLED"
+	ParamIngressSubdomain   = "STEVEDORE_INGRESS_SUBDOMAIN"
+	ParamIngressPort        = "STEVEDORE_INGRESS_PORT"
+	ParamIngressWebSocket   = "STEVEDORE_INGRESS_WEBSOCKET"
+	ParamIngressHealthCheck = "STEVEDORE_INGRESS_HEALTHCHECK"
+)
+
 // dockerContainerInfo holds minimal container info from docker ps/inspect
 type dockerContainerInfo struct {
 	ID     string            `json:"Id"`
@@ -83,10 +93,13 @@ func (i *Instance) ListServices(ctx context.Context) ([]Service, error) {
 		return nil, nil
 	}
 
+	// Cache for deployment params to avoid repeated DB queries
+	deploymentParams := make(map[string]map[string]string)
+
 	// Inspect each container
 	var services []Service
 	for _, id := range ids {
-		svc, err := i.inspectService(ctx, id)
+		svc, err := i.inspectServiceWithParams(ctx, id, deploymentParams)
 		if err != nil {
 			continue // Skip containers we can't inspect
 		}
@@ -160,8 +173,14 @@ func (i *Instance) listStevedoreContainerIDs(ctx context.Context) ([]string, err
 	return ids, nil
 }
 
-// inspectService gets service info from a container.
+// inspectService gets service info from a container (without parameter support).
 func (i *Instance) inspectService(ctx context.Context, containerID string) (*Service, error) {
+	return i.inspectServiceWithParams(ctx, containerID, nil)
+}
+
+// inspectServiceWithParams gets service info from a container with parameter-based ingress support.
+// The deploymentParams cache is used to avoid repeated DB queries for the same deployment.
+func (i *Instance) inspectServiceWithParams(ctx context.Context, containerID string, deploymentParamsCache map[string]map[string]string) (*Service, error) {
 	cmd := exec.CommandContext(ctx, "docker", "inspect", containerID)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -186,17 +205,33 @@ func (i *Instance) inspectService(ctx context.Context, containerID string) (*Ser
 	// Extract deployment name from project (stevedore-{deployment})
 	project := labels[LabelComposeProject]
 	deployment := strings.TrimPrefix(project, "stevedore-")
+	serviceName := labels[LabelComposeService]
 
 	svc := &Service{
 		Deployment:    deployment,
-		ServiceName:   labels[LabelComposeService],
+		ServiceName:   serviceName,
 		ContainerID:   r.ID[:12],
 		ContainerName: strings.TrimPrefix(r.Name, "/"),
 		Running:       r.State.Running,
 	}
 
-	// Parse ingress labels
+	// Parse ingress labels first (labels take precedence)
 	ingress := parseIngressLabels(labels)
+
+	// If no ingress from labels, try parameters
+	if ingress == nil && deploymentParamsCache != nil && deployment != "" && serviceName != "" {
+		// Get or load deployment params
+		params, ok := deploymentParamsCache[deployment]
+		if !ok {
+			params, _ = i.LoadDeploymentIngressParams(deployment)
+			deploymentParamsCache[deployment] = params
+		}
+
+		if len(params) > 0 {
+			ingress = parseIngressFromParams(params, serviceName)
+		}
+	}
+
 	if ingress != nil {
 		svc.Ingress = ingress
 	}
@@ -231,4 +266,74 @@ func parseIngressLabels(labels map[string]string) *IngressConfig {
 	config.WebSocket = wsStr == "true" || wsStr == "1" || wsStr == "yes"
 
 	return config
+}
+
+// normalizeServiceName converts a service name to uppercase with dashes replaced by underscores.
+// This follows the industry standard for environment variable naming.
+func normalizeServiceName(serviceName string) string {
+	return strings.ToUpper(strings.ReplaceAll(serviceName, "-", "_"))
+}
+
+// parseIngressFromParams extracts ingress configuration from deployment parameters.
+// Service-specific params (STEVEDORE_INGRESS_<SERVICE>_*) take precedence.
+// If no service-specific params exist, returns nil (must be explicit per Issue #9).
+func parseIngressFromParams(params map[string]string, serviceName string) *IngressConfig {
+	if len(params) == 0 {
+		return nil
+	}
+
+	// Try service-specific params first: STEVEDORE_INGRESS_<SERVICE>_*
+	normalizedService := normalizeServiceName(serviceName)
+	servicePrefix := ParamIngressPrefix + normalizedService + "_"
+
+	// Check if service-specific enabled param exists
+	enabledKey := servicePrefix + "ENABLED"
+	enabledStr, hasServiceSpecific := params[enabledKey]
+
+	if !hasServiceSpecific {
+		// No service-specific config - must be explicit (no fallback to deployment-wide)
+		return nil
+	}
+
+	enabled := enabledStr == "true" || enabledStr == "1" || enabledStr == "yes"
+
+	config := &IngressConfig{
+		Enabled:     enabled,
+		Subdomain:   params[servicePrefix+"SUBDOMAIN"],
+		HealthCheck: params[servicePrefix+"HEALTHCHECK"],
+	}
+
+	// Parse port
+	if portStr := params[servicePrefix+"PORT"]; portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			config.Port = port
+		}
+	}
+
+	// Parse websocket
+	wsStr := params[servicePrefix+"WEBSOCKET"]
+	config.WebSocket = wsStr == "true" || wsStr == "1" || wsStr == "yes"
+
+	return config
+}
+
+// LoadDeploymentIngressParams loads ingress-related parameters for a deployment.
+func (i *Instance) LoadDeploymentIngressParams(deployment string) (map[string]string, error) {
+	params := make(map[string]string)
+
+	names, err := i.ListParameters(deployment)
+	if err != nil {
+		return params, nil // Return empty map on error (deployment might not exist)
+	}
+
+	for _, name := range names {
+		if strings.HasPrefix(name, ParamIngressPrefix) {
+			value, err := i.GetParameter(deployment, name)
+			if err == nil {
+				params[name] = string(value)
+			}
+		}
+	}
+
+	return params, nil
 }

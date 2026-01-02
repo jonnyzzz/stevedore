@@ -35,6 +35,9 @@ type QueryServer struct {
 	mu            sync.RWMutex
 	lastChangeAt  time.Time
 	changeWaiters []chan struct{}
+
+	// Event bus for change notifications (Issue #10)
+	eventBus *EventBus
 }
 
 // NewQueryServer creates a new query server.
@@ -46,7 +49,13 @@ func NewQueryServer(instance *Instance, socketPath string) *QueryServer {
 		instance:     instance,
 		socketPath:   socketPath,
 		lastChangeAt: time.Now(),
+		eventBus:     NewEventBus(100),
 	}
+}
+
+// EventBus returns the event bus for publishing events.
+func (qs *QueryServer) EventBus() *EventBus {
+	return qs.eventBus
 }
 
 // Start starts the query server.
@@ -112,6 +121,7 @@ func (qs *QueryServer) Stop() error {
 }
 
 // NotifyChange notifies all long-polling clients of a deployment change.
+// Deprecated: Use PublishEvent for typed events.
 func (qs *QueryServer) NotifyChange() {
 	qs.mu.Lock()
 	defer qs.mu.Unlock()
@@ -126,6 +136,22 @@ func (qs *QueryServer) NotifyChange() {
 		}
 	}
 	qs.changeWaiters = nil
+}
+
+// PublishEvent publishes a typed event and notifies long-polling clients.
+func (qs *QueryServer) PublishEvent(eventType EventType, deployment string, details map[string]string) {
+	event := Event{
+		Type:       eventType,
+		Deployment: deployment,
+		Timestamp:  time.Now(),
+		Details:    details,
+	}
+
+	// Publish to event bus
+	qs.eventBus.Publish(event)
+
+	// Also notify legacy long-poll waiters
+	qs.NotifyChange()
 }
 
 // requireAuth wraps handlers with token authentication.
@@ -262,7 +288,16 @@ func (qs *QueryServer) handlePoll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check if there's already a change since the given time
+	// Check if there are already events since the given time
+	if !since.IsZero() {
+		events := qs.eventBus.EventsSince(since)
+		if len(events) > 0 {
+			qs.sendPollResponseWithEvents(w, events)
+			return
+		}
+	}
+
+	// Check legacy lastChangeAt for backwards compatibility
 	qs.mu.RLock()
 	if !since.IsZero() && qs.lastChangeAt.After(since) {
 		qs.mu.RUnlock()
@@ -284,6 +319,14 @@ func (qs *QueryServer) handlePoll(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case <-waiter:
+		// Check for events that arrived
+		if !since.IsZero() {
+			events := qs.eventBus.EventsSince(since)
+			if len(events) > 0 {
+				qs.sendPollResponseWithEvents(w, events)
+				return
+			}
+		}
 		qs.sendPollResponse(w)
 	case <-timeout.C:
 		// No change within timeout
@@ -302,6 +345,29 @@ func (qs *QueryServer) sendPollResponse(w http.ResponseWriter) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = fmt.Fprintf(w, `{"changed":true,"timestamp":%d}`, changeAt)
+}
+
+// PollResponse represents the response from the /poll endpoint.
+type PollResponse struct {
+	Changed   bool    `json:"changed"`
+	Timestamp int64   `json:"timestamp,omitempty"`
+	Events    []Event `json:"events,omitempty"`
+}
+
+func (qs *QueryServer) sendPollResponseWithEvents(w http.ResponseWriter, events []Event) {
+	var timestamp int64
+	if len(events) > 0 {
+		timestamp = events[len(events)-1].Timestamp.Unix()
+	}
+
+	response := PollResponse{
+		Changed:   true,
+		Timestamp: timestamp,
+		Events:    events,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // SocketPath returns the socket path.
