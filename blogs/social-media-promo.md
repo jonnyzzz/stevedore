@@ -34,10 +34,10 @@ If I break upstream, your house doesn't burn down.
 
 **Post 5:**
 Read the full story and how to set it up on your Pi in 5 minutes:
-[Link to Blog Post 01]
+https://jonnyzzz.com/blog/2025/12/24/introducing-stevedore/
 
 And the tutorial:
-[Link to Blog Post 03]
+https://jonnyzzz.com/blog/2025/12/24/getting-started-with-stevedore/
 
 #homelab #selfhosted #gitops #golang #raspberrypi
 
@@ -73,8 +73,8 @@ It follows a "Fork First" philosophy. You fork the repo, and that fork becomes y
 
 I wrote a deep dive into why I built it and how it works under the hood.
 
-👉 Read the intro: [Link to Blog 01]
-👉 Read the architecture deep dive: [Link to Blog 02]
+👉 Read the intro: https://jonnyzzz.com/blog/2025/12/24/introducing-stevedore/
+👉 Read the architecture deep dive: https://jonnyzzz.com/blog/2025/12/24/stevedore-architecture/
 
 #devops #gitops #selfhosting #homelab #golang #docker #opensource
 
