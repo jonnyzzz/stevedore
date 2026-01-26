@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.1] - 2026-01-26
+
+### Fixed
+
+- **Auto-reconcile for stopped deployments** - Daemon now restarts stopped services that were previously deployed (enabled repos). Manual `deploy down` disables auto-reconcile until `deploy up`.
+
+### Documentation
+
+- Documented the reconcile loop and added integration coverage for auto-restart behavior.
+
 ## [0.9.0] - 2026-01-02
 
 ### Added

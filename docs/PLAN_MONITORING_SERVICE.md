@@ -8,6 +8,9 @@ This document tracks the monitoring flow (check-only + sync-clean + CLI/API).
 - Clean sync (`GitSyncClean`) removes stale files by default; `--no-clean` disables cleanup.
 - CLI command `stevedore check <deployment>` is implemented.
 - Daemon poll loop uses check-only first, then sync + deploy when changes are detected.
+- Daemon reconcile loop restarts stopped deployments that were previously deployed and still enabled.
+  - Interval configurable via `STEVEDORE_RECONCILE_INTERVAL` (default: 30s).
+  - `stevedore deploy down` disables auto-reconcile until `stevedore deploy up`.
 - HTTP API includes `POST /api/check/{name}` and requires version headers.
 - Version mismatches return `409 Conflict` (strict matching).
 - Integration coverage: `tests/integration/monitoring_test.go`.

@@ -10,14 +10,15 @@ import (
 
 // DaemonConfig holds configuration for the daemon.
 type DaemonConfig struct {
-	AdminKey        string
-	ListenAddr      string
-	Version         string
-	Build           string        // Git commit or build hash for strict version matching
-	MinPollTime     time.Duration // Minimum time between poll cycles (default: 30s)
-	SyncTimeout     time.Duration // Timeout for sync operations (default: 5m)
-	DeployTimeout   time.Duration // Timeout for deploy operations (default: 10m)
-	QuerySocketPath string        // Path for query socket (default: /var/run/stevedore/query.sock)
+	AdminKey          string
+	ListenAddr        string
+	Version           string
+	Build             string        // Git commit or build hash for strict version matching
+	MinPollTime       time.Duration // Minimum time between poll cycles (default: 30s)
+	SyncTimeout       time.Duration // Timeout for sync operations (default: 5m)
+	DeployTimeout     time.Duration // Timeout for deploy operations (default: 10m)
+	ReconcileInterval time.Duration // Interval for reconcile checks (default: 30s)
+	QuerySocketPath   string        // Path for query socket (default: /var/run/stevedore/query.sock)
 }
 
 // Daemon manages the polling loop and HTTP server.
@@ -28,7 +29,7 @@ type Daemon struct {
 	server      *Server
 	queryServer *QueryServer
 	mu          sync.Mutex
-	syncing     map[string]bool // Track which deployments are currently syncing
+	active      map[string]bool // Track deployments currently being processed
 }
 
 // NewDaemon creates a new daemon instance.
@@ -45,6 +46,9 @@ func NewDaemon(instance *Instance, db *sql.DB, config DaemonConfig) *Daemon {
 	if config.DeployTimeout == 0 {
 		config.DeployTimeout = 10 * time.Minute
 	}
+	if config.ReconcileInterval == 0 {
+		config.ReconcileInterval = 30 * time.Second
+	}
 	if config.QuerySocketPath == "" {
 		config.QuerySocketPath = DefaultQuerySocketPath
 	}
@@ -53,7 +57,7 @@ func NewDaemon(instance *Instance, db *sql.DB, config DaemonConfig) *Daemon {
 		instance: instance,
 		db:       db,
 		config:   config,
-		syncing:  make(map[string]bool),
+		active:   make(map[string]bool),
 	}
 
 	d.server = NewServer(instance, db, ServerConfig{
@@ -79,6 +83,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 			log.Printf("Query server error: %v", err)
 		}
 	}()
+
+	// Start reconcile loop in background
+	go d.runReconcileLoop(ctx)
 
 	// Run polling loop
 	d.runPollLoop(ctx)
@@ -113,6 +120,25 @@ func (d *Daemon) runPollLoop(ctx context.Context) {
 	}
 }
 
+// runReconcileLoop periodically checks deployments and restarts stopped services.
+func (d *Daemon) runReconcileLoop(ctx context.Context) {
+	ticker := time.NewTicker(d.config.ReconcileInterval)
+	defer ticker.Stop()
+
+	// Run an initial reconcile immediately
+	d.reconcileAllDeployments(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Reconcile loop stopping")
+			return
+		case <-ticker.C:
+			d.reconcileAllDeployments(ctx)
+		}
+	}
+}
+
 // pollAllDeployments polls all enabled deployments that are due for sync.
 func (d *Daemon) pollAllDeployments(ctx context.Context) {
 	deployments, err := d.instance.ListEnabledDeployments(d.db)
@@ -141,7 +167,7 @@ func (d *Daemon) pollAllDeployments(ctx context.Context) {
 		}
 
 		// Check if already syncing
-		if d.isAlreadySyncing(deployment.Deployment) {
+		if d.isActive(deployment.Deployment) {
 			continue
 		}
 
@@ -150,21 +176,21 @@ func (d *Daemon) pollAllDeployments(ctx context.Context) {
 	}
 }
 
-// isAlreadySyncing checks if a deployment is currently being synced.
-func (d *Daemon) isAlreadySyncing(deployment string) bool {
+// isActive checks if a deployment is currently being processed.
+func (d *Daemon) isActive(deployment string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.syncing[deployment]
+	return d.active[deployment]
 }
 
-// setSyncing marks a deployment as syncing or not.
-func (d *Daemon) setSyncing(deployment string, syncing bool) {
+// setActive marks a deployment as active or not.
+func (d *Daemon) setActive(deployment string, active bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if syncing {
-		d.syncing[deployment] = true
+	if active {
+		d.active[deployment] = true
 	} else {
-		delete(d.syncing, deployment)
+		delete(d.active, deployment)
 	}
 }
 
@@ -172,8 +198,18 @@ func (d *Daemon) setSyncing(deployment string, syncing bool) {
 // It first checks for updates using git fetch only (safe while deployment runs),
 // then syncs and deploys only if changes are detected.
 func (d *Daemon) syncDeployment(parentCtx context.Context, deployment string) {
-	d.setSyncing(deployment, true)
-	defer d.setSyncing(deployment, false)
+	d.setActive(deployment, true)
+	defer d.setActive(deployment, false)
+
+	config, err := d.instance.GetRepoConfig(d.db, deployment)
+	if err != nil {
+		log.Printf("Error loading repo config for %s: %v", deployment, err)
+		return
+	}
+	if !config.Enabled {
+		log.Printf("Skipping sync for disabled deployment: %s", deployment)
+		return
+	}
 
 	log.Printf("Checking for updates: %s", deployment)
 
@@ -249,6 +285,109 @@ func (d *Daemon) syncDeployment(parentCtx context.Context, deployment string) {
 	d.queryServer.NotifyChange()
 }
 
+// reconcileAllDeployments checks deployments and restarts stopped services.
+func (d *Daemon) reconcileAllDeployments(ctx context.Context) {
+	deployments, err := d.instance.ListEnabledDeployments(d.db)
+	if err != nil {
+		log.Printf("Error listing deployments for reconcile: %v", err)
+		return
+	}
+
+	for _, deployment := range deployments {
+		if deployment.Deployment == "stevedore" {
+			continue
+		}
+		if d.isActive(deployment.Deployment) {
+			continue
+		}
+		go d.reconcileDeployment(ctx, deployment.Deployment)
+	}
+}
+
+// reconcileDeployment ensures a deployment is running if it was previously deployed.
+func (d *Daemon) reconcileDeployment(parentCtx context.Context, deployment string) {
+	d.setActive(deployment, true)
+	defer d.setActive(deployment, false)
+
+	config, err := d.instance.GetRepoConfig(d.db, deployment)
+	if err != nil {
+		log.Printf("Error loading repo config for %s: %v", deployment, err)
+		return
+	}
+	if !config.Enabled {
+		return
+	}
+
+	syncStatus, err := d.instance.GetSyncStatus(d.db, deployment)
+	if err != nil {
+		log.Printf("Error getting sync status for %s: %v", deployment, err)
+		return
+	}
+	if syncStatus.LastDeployAt.IsZero() {
+		return
+	}
+
+	status, err := d.instance.GetDeploymentStatus(parentCtx, deployment)
+	if err != nil {
+		log.Printf("Error getting deployment status for %s: %v", deployment, err)
+		return
+	}
+	if !needsReconcile(status) {
+		return
+	}
+
+	config, err = d.instance.GetRepoConfig(d.db, deployment)
+	if err != nil {
+		log.Printf("Error loading repo config for %s: %v", deployment, err)
+		return
+	}
+	if !config.Enabled {
+		return
+	}
+
+	log.Printf("Reconcile: deployment %s not running (%s), restarting...", deployment, status.Message)
+
+	deployCtx, deployCancel := context.WithTimeout(parentCtx, d.config.DeployTimeout)
+	defer deployCancel()
+
+	deployResult, err := d.instance.Deploy(deployCtx, deployment, ComposeConfig{})
+	if err != nil {
+		log.Printf("Reconcile deploy failed for %s: %v", deployment, err)
+		_ = d.instance.UpdateSyncError(d.db, deployment, err)
+		return
+	}
+
+	if err := d.instance.UpdateDeployStatus(d.db, deployment); err != nil {
+		log.Printf("Warning: failed to update deploy status for %s: %v", deployment, err)
+	}
+
+	log.Printf("Reconciled %s: project=%s, services=%v",
+		deployment, deployResult.ProjectName, deployResult.Services)
+
+	d.queryServer.NotifyChange()
+}
+
+func needsReconcile(status *DeploymentStatus) bool {
+	if status == nil {
+		return false
+	}
+	if len(status.Containers) == 0 {
+		return true
+	}
+
+	running := 0
+	for _, c := range status.Containers {
+		if c.State.IsStopped() {
+			return true
+		}
+		if c.State == StateRunning || c.State == StateRestarting {
+			running++
+		}
+	}
+
+	return running == 0
+}
+
 // shortCommit returns the first 12 characters of a commit hash.
 func shortCommit(hash string) string {
 	if len(hash) > 12 {
@@ -260,7 +399,7 @@ func shortCommit(hash string) string {
 // TriggerSync manually triggers a sync for a deployment.
 // This is called by the HTTP API.
 func (d *Daemon) TriggerSync(ctx context.Context, deployment string) error {
-	if d.isAlreadySyncing(deployment) {
+	if d.isActive(deployment) {
 		return nil // Already syncing
 	}
 

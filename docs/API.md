@@ -235,3 +235,4 @@ All errors return JSON with an `error` field:
 | `STEVEDORE_LISTEN_ADDR` | HTTP server listen address | `:42107` |
 | `STEVEDORE_ADMIN_KEY` | Admin key (overrides file) | - |
 | `STEVEDORE_ADMIN_KEY_FILE` | Path to admin key file | `system/admin.key` |
+| `STEVEDORE_RECONCILE_INTERVAL` | Interval for auto-restart reconcile loop | `30s` |

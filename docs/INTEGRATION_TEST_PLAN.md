@@ -177,11 +177,12 @@ The integration test package (`tests/integration/`) now contains:
 2. **TestInstaller_SelfBootstrap**: Self-bootstrap flow with Git server
 3. **TestDeploymentWorkflow**: Full deployment lifecycle with Git server
 4. **TestMonitoringWorkflow**: Git check + sync-clean behavior
-5. **TestGitServer_Basic**: Git server helper validation
-6. **TestSelfUpgrade**: Self-update workflow (macOS requires Docker Desktop file sharing for bind mounts)
-7. **TestQuerySocketWorkflow**: Query socket API endpoints and authentication
-8. **TestQuerySocketLongPolling**: Long-polling for deployment changes
-9. **TestQuerySocketTokenManagement**: Token lifecycle (create, regenerate, list)
+5. **TestReconcileRestartsStoppedContainers**: Daemon auto-restarts stopped containers
+6. **TestGitServer_Basic**: Git server helper validation
+7. **TestSelfUpgrade**: Self-update workflow (macOS requires Docker Desktop file sharing for bind mounts)
+8. **TestQuerySocketWorkflow**: Query socket API endpoints and authentication
+9. **TestQuerySocketLongPolling**: Long-polling for deployment changes
+10. **TestQuerySocketTokenManagement**: Token lifecycle (create, regenerate, list)
 
 ## Running Locally
 

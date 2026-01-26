@@ -136,6 +136,9 @@ Current state (v0-3):
 - HTTP health endpoint implemented: `GET :42107/healthz` returns `{"status":"ok","version":"..."}`
 - systemd restarts Stevedore on crashes.
 - Container-level health checks (Docker `HEALTHCHECK`) can call the endpoint.
+- Daemon reconcile loop restarts stopped deployments that were previously deployed and still enabled.
+  - Interval: `STEVEDORE_RECONCILE_INTERVAL` (default: 30s).
+  - `stevedore deploy down` disables auto-reconcile until `stevedore deploy up`.
 
 Remaining work:
 

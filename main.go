@@ -184,10 +184,11 @@ func runDaemon(instance *stevedore.Instance) {
 	defer stop()
 
 	daemon := stevedore.NewDaemon(instance, db, stevedore.DaemonConfig{
-		AdminKey:   adminKey,
-		ListenAddr: getEnvDefault("STEVEDORE_LISTEN_ADDR", ":42107"),
-		Version:    Version,
-		Build:      GitCommit,
+		AdminKey:          adminKey,
+		ListenAddr:        getEnvDefault("STEVEDORE_LISTEN_ADDR", ":42107"),
+		Version:           Version,
+		Build:             GitCommit,
+		ReconcileInterval: getEnvDuration("STEVEDORE_RECONCILE_INTERVAL", 30*time.Second),
 	})
 
 	// Set the executor so API can run CLI commands
@@ -387,6 +388,17 @@ func runDeployTo(instance *stevedore.Instance, args []string, w io.Writer) error
 		if err != nil {
 			return err
 		}
+		db, err := instance.OpenDB()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = db.Close() }()
+		if err := instance.SetDeploymentEnabled(db, deployment, true); err != nil {
+			return err
+		}
+		if err := instance.UpdateDeployStatus(db, deployment); err != nil {
+			return err
+		}
 		_, _ = fmt.Fprintf(w, "Deployed: %s (compose file: %s)\n", result.ProjectName, result.ComposeFile)
 		if len(result.Services) > 0 {
 			_, _ = fmt.Fprintf(w, "Services: %s\n", strings.Join(result.Services, ", "))
@@ -400,7 +412,18 @@ func runDeployTo(instance *stevedore.Instance, args []string, w io.Writer) error
 		deployment := args[1]
 
 		_, _ = fmt.Fprintf(w, "Stopping %s...\n", deployment)
+		db, err := instance.OpenDB()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = db.Close() }()
+		if err := instance.SetDeploymentEnabled(db, deployment, false); err != nil {
+			return err
+		}
 		if err := instance.Stop(ctx, deployment, stevedore.ComposeConfig{}); err != nil {
+			if reenableErr := instance.SetDeploymentEnabled(db, deployment, true); reenableErr != nil {
+				return fmt.Errorf("stop failed: %w (failed to re-enable deployment: %v)", err, reenableErr)
+			}
 			return err
 		}
 		_, _ = fmt.Fprintf(w, "Stopped: %s\n", deployment)
@@ -844,6 +867,19 @@ func getEnvDefault(name string, defaultValue string) string {
 		return v
 	}
 	return defaultValue
+}
+
+func getEnvDuration(name string, defaultValue time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return defaultValue
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		log.Printf("WARNING: invalid %s=%q, using %s", name, v, defaultValue)
+		return defaultValue
+	}
+	return d
 }
 
 func printUsageTo(w io.Writer) {

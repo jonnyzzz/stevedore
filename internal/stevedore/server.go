@@ -362,6 +362,10 @@ func (s *Server) handleAPIDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.instance.SetDeploymentEnabled(s.db, deployment, true); err != nil {
+		s.jsonError(w, http.StatusInternalServerError, fmt.Sprintf("enable deployment: %v", err))
+		return
+	}
 	if err := s.instance.UpdateDeployStatus(s.db, deployment); err != nil {
 		log.Printf("warning: failed to update deploy status: %v", err)
 	}

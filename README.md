@@ -80,6 +80,7 @@ Community (implemented):
 Community (implemented — v0-3):
 
 - **Daemon polling loop** — Automated Git sync and deployment on changes
+- **Auto-reconcile** — Restarts stopped deployments for enabled repos (manual `deploy down` disables until `deploy up`)
 - **HTTP API** — Health endpoint (`/healthz`) and admin API on port `42107`
 - **Self-update** — Stevedore updates itself via worker container
 - **Service discovery** — Label-based ingress routing via `stevedore.ingress.*` labels

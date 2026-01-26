@@ -47,6 +47,9 @@ func TestDaemon_NewDaemon(t *testing.T) {
 	if daemon.config.DeployTimeout != 10*time.Minute {
 		t.Errorf("expected default deploy timeout 10m, got %v", daemon.config.DeployTimeout)
 	}
+	if daemon.config.ReconcileInterval != 30*time.Second {
+		t.Errorf("expected default reconcile interval 30s, got %v", daemon.config.ReconcileInterval)
+	}
 }
 
 func TestDaemon_SyncTracking(t *testing.T) {
@@ -69,20 +72,20 @@ func TestDaemon_SyncTracking(t *testing.T) {
 	})
 
 	// Initially not syncing
-	if daemon.isAlreadySyncing("test-deployment") {
-		t.Error("expected deployment to not be syncing initially")
+	if daemon.isActive("test-deployment") {
+		t.Error("expected deployment to not be active initially")
 	}
 
 	// Set syncing
-	daemon.setSyncing("test-deployment", true)
-	if !daemon.isAlreadySyncing("test-deployment") {
-		t.Error("expected deployment to be syncing after setSyncing(true)")
+	daemon.setActive("test-deployment", true)
+	if !daemon.isActive("test-deployment") {
+		t.Error("expected deployment to be active after setActive(true)")
 	}
 
 	// Clear syncing
-	daemon.setSyncing("test-deployment", false)
-	if daemon.isAlreadySyncing("test-deployment") {
-		t.Error("expected deployment to not be syncing after setSyncing(false)")
+	daemon.setActive("test-deployment", false)
+	if daemon.isActive("test-deployment") {
+		t.Error("expected deployment to not be active after setActive(false)")
 	}
 }
 
@@ -102,9 +105,10 @@ func TestDaemon_RunWithCancellation(t *testing.T) {
 	defer db.Close()
 
 	daemon := NewDaemon(instance, db, DaemonConfig{
-		AdminKey:    "test-key",
-		ListenAddr:  ":0", // Random port
-		MinPollTime: 100 * time.Millisecond,
+		AdminKey:          "test-key",
+		ListenAddr:        ":0", // Random port
+		MinPollTime:       100 * time.Millisecond,
+		ReconcileInterval: 100 * time.Millisecond,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
