@@ -186,6 +186,7 @@ write_container_env() {
 
   sudo_cmd sh -c "umask 077; cat > '${STEVEDORE_CONTAINER_ENV}'" <<EOF
 STEVEDORE_ROOT=/opt/stevedore
+STEVEDORE_HOST_ROOT=${STEVEDORE_HOST_ROOT}
 STEVEDORE_DB_KEY_FILE=/opt/stevedore/system/db.key
 STEVEDORE_ADMIN_KEY_FILE=/opt/stevedore/system/admin.key
 STEVEDORE_CONTAINER_NAME=${STEVEDORE_CONTAINER_NAME}
