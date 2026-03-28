@@ -210,7 +210,7 @@ git %s
 		"sh", "-c", gitScript,
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := newCommand(ctx, "docker", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -243,7 +243,7 @@ func (i *Instance) getGitCommit(ctx context.Context, deployment string, config G
 		"git", "-C", "/repo", "rev-parse", "HEAD",
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := newCommand(ctx, "docker", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -268,10 +268,10 @@ func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCl
 
 	var cmd *exec.Cmd
 	if setup.isClone {
-		cmd = exec.CommandContext(ctx, "git", "clone", "--branch", setup.branch, "--depth", "1", "--single-branch", setup.repoURL, setup.gitDir)
+		cmd = newCommand(ctx, "git", "clone", "--branch", setup.branch, "--depth", "1", "--single-branch", setup.repoURL, setup.gitDir)
 	} else {
 		// First fetch
-		fetchCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
+		fetchCmd := newCommand(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
 		fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
 		var fetchStderr bytes.Buffer
 		fetchCmd.Stderr = &fetchStderr
@@ -280,7 +280,7 @@ func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCl
 		}
 
 		// Then checkout
-		cmd = exec.CommandContext(ctx, "git", "-C", setup.gitDir, "checkout", "-f", "FETCH_HEAD")
+		cmd = newCommand(ctx, "git", "-C", setup.gitDir, "checkout", "-f", "FETCH_HEAD")
 	}
 
 	cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
@@ -292,7 +292,7 @@ func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCl
 	}
 
 	// Get commit SHA
-	commitCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
+	commitCmd := newCommand(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
 	commitOut, err := commitCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit: %w", err)
@@ -326,7 +326,7 @@ func (i *Instance) GitCheckRemote(ctx context.Context, deployment string) (*GitC
 	sshCommand := fmt.Sprintf("ssh -o StrictHostKeyChecking=accept-new -i %s", setup.privateKeyPath)
 
 	// Get current HEAD commit
-	currentCommitCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
+	currentCommitCmd := newCommand(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
 	currentCommitOut, err := currentCommitCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current commit: %w", err)
@@ -334,7 +334,7 @@ func (i *Instance) GitCheckRemote(ctx context.Context, deployment string) (*GitC
 	currentCommit := strings.TrimSpace(string(currentCommitOut))
 
 	// Fetch from remote (this only updates refs, not working directory)
-	fetchCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
+	fetchCmd := newCommand(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
 	fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
 	var fetchStderr bytes.Buffer
 	fetchCmd.Stderr = &fetchStderr
@@ -343,7 +343,7 @@ func (i *Instance) GitCheckRemote(ctx context.Context, deployment string) (*GitC
 	}
 
 	// Get FETCH_HEAD commit (what we just fetched)
-	remoteCommitCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "rev-parse", "FETCH_HEAD")
+	remoteCommitCmd := newCommand(ctx, "git", "-C", setup.gitDir, "rev-parse", "FETCH_HEAD")
 	remoteCommitOut, err := remoteCommitCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get remote commit: %w", err)
@@ -372,7 +372,7 @@ func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEna
 
 	if setup.isClone {
 		// Clone the repository
-		cmd := exec.CommandContext(ctx, "git", "clone", "--branch", setup.branch, "--depth", "1", "--single-branch", setup.repoURL, setup.gitDir)
+		cmd := newCommand(ctx, "git", "clone", "--branch", setup.branch, "--depth", "1", "--single-branch", setup.repoURL, setup.gitDir)
 		cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -384,7 +384,7 @@ func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEna
 		var filesBefore map[string]bool
 		if cleanEnabled {
 			filesBefore = make(map[string]bool)
-			lsCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "ls-tree", "-r", "--name-only", "HEAD")
+			lsCmd := newCommand(ctx, "git", "-C", setup.gitDir, "ls-tree", "-r", "--name-only", "HEAD")
 			lsOut, err := lsCmd.Output()
 			if err == nil {
 				for _, f := range strings.Split(strings.TrimSpace(string(lsOut)), "\n") {
@@ -396,7 +396,7 @@ func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEna
 		}
 
 		// Fetch
-		fetchCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
+		fetchCmd := newCommand(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
 		fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
 		var fetchStderr bytes.Buffer
 		fetchCmd.Stderr = &fetchStderr
@@ -405,7 +405,7 @@ func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEna
 		}
 
 		// Hard reset to discard any local changes
-		resetCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "reset", "--hard", "FETCH_HEAD")
+		resetCmd := newCommand(ctx, "git", "-C", setup.gitDir, "reset", "--hard", "FETCH_HEAD")
 		var resetStderr bytes.Buffer
 		resetCmd.Stderr = &resetStderr
 		if err := resetCmd.Run(); err != nil {
@@ -415,7 +415,7 @@ func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEna
 		if cleanEnabled {
 			// Get list of tracked files after update
 			filesAfter := make(map[string]bool)
-			lsCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "ls-tree", "-r", "--name-only", "HEAD")
+			lsCmd := newCommand(ctx, "git", "-C", setup.gitDir, "ls-tree", "-r", "--name-only", "HEAD")
 			lsOut, err := lsCmd.Output()
 			if err == nil {
 				for _, f := range strings.Split(strings.TrimSpace(string(lsOut)), "\n") {
@@ -442,7 +442,7 @@ func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEna
 			}
 
 			// Also clean untracked files
-			cleanCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "clean", "-fd")
+			cleanCmd := newCommand(ctx, "git", "-C", setup.gitDir, "clean", "-fd")
 			var cleanOutput bytes.Buffer
 			cleanCmd.Stdout = &cleanOutput
 			if err := cleanCmd.Run(); err == nil {
@@ -459,7 +459,7 @@ func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEna
 	}
 
 	// Get commit SHA
-	commitCmd := exec.CommandContext(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
+	commitCmd := newCommand(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
 	commitOut, err := commitCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit: %w", err)

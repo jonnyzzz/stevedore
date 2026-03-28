@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -59,7 +58,7 @@ func (s *SelfUpdate) NeedsSelfUpdate(ctx context.Context, currentCommit string) 
 	}
 
 	// Get the current HEAD commit from the checkout
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+	cmd := newCommand(ctx, "git", "rev-parse", "HEAD")
 	cmd.Dir = gitDir
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
@@ -81,7 +80,7 @@ func (s *SelfUpdate) NeedsSelfUpdate(ctx context.Context, currentCommit string) 
 
 // getCurrentImageTag gets the image tag of the currently running stevedore container.
 func (s *SelfUpdate) getCurrentImageTag(ctx context.Context) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Config.Image}}", s.config.ContainerName)
+	cmd := newCommand(ctx, "docker", "inspect", "--format", "{{.Config.Image}}", s.config.ContainerName)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -97,7 +96,7 @@ func (s *SelfUpdate) tagImageAsBackup(ctx context.Context, currentImage string) 
 	baseName := parts[0]
 	backupTag := fmt.Sprintf("%s:backup-%d", baseName, time.Now().Unix())
 
-	cmd := exec.CommandContext(ctx, "docker", "tag", currentImage, backupTag)
+	cmd := newCommand(ctx, "docker", "tag", currentImage, backupTag)
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("tag backup image: %w", err)
 	}
@@ -144,7 +143,7 @@ func (s *SelfUpdate) BuildNewImage(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.BuildTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker", "build", "-t", imageTag, ".")
+	cmd := newCommand(ctx, "docker", "build", "-t", imageTag, ".")
 	cmd.Dir = gitDir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -168,7 +167,7 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	log.Printf("Self-update: preparing to replace container %s with image %s", containerName, newImageTag)
 
 	// Get the current container's mount for /opt/stevedore (HOST path)
-	mountsCmd := exec.CommandContext(ctx, "docker", "inspect", "--format",
+	mountsCmd := newCommand(ctx, "docker", "inspect", "--format",
 		"{{range .Mounts}}{{if eq .Destination \"/opt/stevedore\"}}{{.Source}}{{end}}{{end}}",
 		containerName)
 	var mountsOut bytes.Buffer
@@ -183,7 +182,7 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	log.Printf("Self-update: using host root: %s", hostRoot)
 
 	// Get restart policy
-	policyCmd := exec.CommandContext(ctx, "docker", "inspect", "--format",
+	policyCmd := newCommand(ctx, "docker", "inspect", "--format",
 		"{{.HostConfig.RestartPolicy.Name}}", containerName)
 	var policyOut bytes.Buffer
 	policyCmd.Stdout = &policyOut
@@ -336,7 +335,7 @@ log "Update complete!"
 		"sh", "-c", "sh /worker-data/update-script.sh",
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := newCommand(ctx, "docker", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 

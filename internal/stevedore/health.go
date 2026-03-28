@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -160,7 +159,7 @@ func (i *Instance) listProjectContainers(ctx context.Context, projectName string
 		"--format", "{{.ID}}",
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := newCommand(ctx, "docker", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -192,7 +191,7 @@ func (i *Instance) listProjectContainers(ctx context.Context, projectName string
 
 // inspectContainer gets detailed status for a container.
 func (i *Instance) inspectContainer(ctx context.Context, containerID string) (*ContainerStatus, error) {
-	cmd := exec.CommandContext(ctx, "docker", "inspect", containerID)
+	cmd := newCommand(ctx, "docker", "inspect", containerID)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

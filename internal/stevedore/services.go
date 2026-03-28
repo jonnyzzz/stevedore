@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -143,7 +142,7 @@ func (i *Instance) listStevedoreContainerIDs(ctx context.Context) ([]string, err
 		"--format", "{{.ID}}\t{{.Label \"" + LabelComposeProject + "\"}}",
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := newCommand(ctx, "docker", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -181,7 +180,7 @@ func (i *Instance) inspectService(ctx context.Context, containerID string) (*Ser
 // inspectServiceWithParams gets service info from a container with parameter-based ingress support.
 // The deploymentParams cache is used to avoid repeated DB queries for the same deployment.
 func (i *Instance) inspectServiceWithParams(ctx context.Context, containerID string, deploymentParamsCache map[string]map[string]string) (*Service, error) {
-	cmd := exec.CommandContext(ctx, "docker", "inspect", containerID)
+	cmd := newCommand(ctx, "docker", "inspect", containerID)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -121,7 +120,7 @@ func (i *Instance) Deploy(ctx context.Context, deployment string, config Compose
 		"--remove-orphans",
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := newCommand(ctx, "docker", args...)
 	cmd.Dir = gitDir
 	cmd.Env = append(os.Environ(),
 		"STEVEDORE_DEPLOYMENT="+deployment,
@@ -201,7 +200,7 @@ func (i *Instance) Stop(ctx context.Context, deployment string, config ComposeCo
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := newCommand(ctx, "docker", args...)
 	if composePath != "" {
 		cmd.Dir = gitDir
 	}
@@ -225,7 +224,7 @@ func (i *Instance) getComposeServices(ctx context.Context, composePath, projectN
 		"config", "--services",
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := newCommand(ctx, "docker", args...)
 	cmd.Dir = workDir
 
 	var stdout, stderr bytes.Buffer
