@@ -173,6 +173,7 @@ func TestRunGitScript_ExecutesInContainer(t *testing.T) {
 
 	deployment := "test-script"
 	setupGitRepoDir(t, root, deployment)
+	t.Cleanup(func() { fixDockerOwnership(t, root) })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -201,6 +202,7 @@ func TestRunGitScript_MountsRepoDir(t *testing.T) {
 
 	deployment := "test-mount"
 	setupGitRepoDir(t, root, deployment)
+	t.Cleanup(func() { fixDockerOwnership(t, root) })
 
 	// Create a marker file in the git dir
 	gitDir := filepath.Join(root, "deployments", deployment, "repo", "git")
@@ -236,6 +238,7 @@ func TestRunGitScript_ContextCancelStopsContainer(t *testing.T) {
 
 	deployment := "test-cancel"
 	setupGitRepoDir(t, root, deployment)
+	t.Cleanup(func() { fixDockerOwnership(t, root) })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -302,41 +305,15 @@ func TestGitSyncClean_CloneInContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Run clone using a direct docker command with the bare repo mounted
-	// (We can't use runGitScript directly because it doesn't mount the bare repo,
-	//  so we test the script logic directly)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	t.Cleanup(func() { fixDockerOwnership(t, root) })
 
-	containerName := fmt.Sprintf("stevedore-test-clone-%d", time.Now().UnixNano())
-	image := DefaultGitWorkerConfig().Image
-
-	script := fmt.Sprintf(`set -e
+	output := runDockerGit(t, ctx, `set -e
 cd /repo
 git clone --branch main --depth 1 --single-branch file:///bare-repo .
 echo "STEVEDORE_COMMIT=$(git rev-parse HEAD)"
-`)
-
-	args := []string{
-		"run", "--rm",
-		"--name", containerName,
-		"--entrypoint", "sh",
-		"-v", gitDir + ":/repo",
-		"-v", bareRepo + ":/bare-repo:ro",
-		image,
-		"-c", script,
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("clone failed: %v: %s", err, stderr.String())
-	}
-
-	output := stdout.String()
+`, map[string]string{gitDir: "/repo", bareRepo: "/bare-repo:ro"})
 	if !strings.Contains(output, "STEVEDORE_COMMIT=") {
 		t.Fatalf("expected commit SHA in output, got: %q", output)
 	}
@@ -395,35 +372,15 @@ func TestGitSyncClean_FetchResetInContainer(t *testing.T) {
 	// Run fetch+reset in container
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	t.Cleanup(func() { fixDockerOwnership(t, root) })
 
-	containerName := fmt.Sprintf("stevedore-test-fetch-%d", time.Now().UnixNano())
-	image := DefaultGitWorkerConfig().Image
-
-	script := `set -e
+	runDockerGit(t, ctx, `set -e
 cd /repo
 git fetch --depth 1 origin main
 git reset --hard FETCH_HEAD
 git clean -fd 2>/dev/null || true
 echo "STEVEDORE_COMMIT=$(git rev-parse HEAD)"
-`
-	args := []string{
-		"run", "--rm",
-		"--name", containerName,
-		"--entrypoint", "sh",
-		"-v", gitDir + ":/repo",
-		"-v", bareRepo + ":/bare-repo:ro",
-		image,
-		"-c", script,
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("fetch+reset failed: %v: %s", err, stderr.String())
-	}
+`, map[string]string{gitDir: "/repo", bareRepo: "/bare-repo:ro"})
 
 	commit2 := getHeadCommit(t, gitDir)
 	if commit1 == commit2 {
@@ -479,24 +436,11 @@ func TestGitSyncClean_CleanRemovesUntracked(t *testing.T) {
 	// Run clean in container
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	t.Cleanup(func() { fixDockerOwnership(t, root) })
 
-	containerName := fmt.Sprintf("stevedore-test-clean-%d", time.Now().UnixNano())
-	image := DefaultGitWorkerConfig().Image
-
-	args := []string{
-		"run", "--rm",
-		"--name", containerName,
-		"--entrypoint", "sh",
-		"-v", gitDir + ":/repo",
-		"-v", bareRepo + ":/bare-repo:ro",
-		image,
-		"-c", "cd /repo && git fetch --depth 1 origin main && git reset --hard FETCH_HEAD && git clean -fd",
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("clean failed: %v", err)
-	}
+	runDockerGit(t, ctx,
+		"cd /repo && git fetch --depth 1 origin main && git reset --hard FETCH_HEAD && git clean -fd",
+		map[string]string{gitDir: "/repo", bareRepo: "/bare-repo:ro"})
 
 	// Verify untracked file was removed
 	if _, err := os.Stat(filepath.Join(gitDir, "junk.txt")); err == nil {
@@ -507,6 +451,52 @@ func TestGitSyncClean_CleanRemovesUntracked(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(gitDir, "tracked.txt")); err != nil {
 		t.Error("expected tracked.txt to still exist")
 	}
+}
+
+// runDockerGit runs a git script in an alpine/git container with the given volumes.
+// It prepends safe.directory config to avoid dubious ownership errors.
+// Returns stdout.
+func runDockerGit(t *testing.T, ctx context.Context, script string, volumes map[string]string) string {
+	t.Helper()
+	image := DefaultGitWorkerConfig().Image
+	containerName := fmt.Sprintf("stevedore-test-%d", time.Now().UnixNano())
+
+	fullScript := "git config --global --add safe.directory /repo\n" + script
+
+	args := []string{
+		"run", "--rm",
+		"--name", containerName,
+		"--entrypoint", "sh",
+	}
+	for hostPath, containerPath := range volumes {
+		args = append(args, "-v", hostPath+":"+containerPath)
+	}
+	args = append(args, image, "-c", fullScript)
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("docker git script failed: %v: %s", err, stderr.String())
+	}
+	return stdout.String()
+}
+
+// fixDockerOwnership fixes ownership of files created by Docker containers (which run as root).
+// This is needed so t.TempDir() cleanup can delete the files.
+func fixDockerOwnership(t *testing.T, dir string) {
+	t.Helper()
+	uid := os.Getuid()
+	gid := os.Getgid()
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		_ = os.Chown(path, uid, gid)
+		return nil
+	})
 }
 
 // setupGitRepoDir creates the minimal directory structure for a deployment repo.
