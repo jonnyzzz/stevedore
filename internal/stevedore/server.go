@@ -315,7 +315,7 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("API: triggering sync for %s", deployment)
 
-	result, err := s.instance.GitCloneLocal(ctx, deployment)
+	result, err := s.instance.GitSyncClean(ctx, deployment, true)
 	if err != nil {
 		_ = s.instance.UpdateSyncError(s.db, deployment, err)
 		s.jsonError(w, http.StatusInternalServerError, fmt.Sprintf("sync failed: %v", err))

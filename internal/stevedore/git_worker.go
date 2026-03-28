@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -117,68 +117,16 @@ func (i *Instance) prepareGitRepo(deployment string) (*gitRepoSetup, error) {
 	}, nil
 }
 
-// GitSync performs a git clone or pull operation for a deployment using a worker container.
-// It clones if the repo doesn't exist, or fetches and checks out if it does.
-func (i *Instance) GitSync(ctx context.Context, deployment string, config GitWorkerConfig) (*GitCloneResult, error) {
+// runGitScript runs a shell script in a git worker container.
+// The script is executed after SSH keys are configured. The repo is mounted at /repo.
+// Returns the stdout output.
+func (i *Instance) runGitScript(ctx context.Context, deployment string, script string) (string, error) {
 	setup, err := i.prepareGitRepo(deployment)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	if config.Timeout == 0 {
-		config.Timeout = DefaultGitWorkerConfig().Timeout
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, config.Timeout)
-	defer cancel()
-
-	if setup.isClone {
-		// Clone the repository
-		if err := i.runGitWorker(ctx, deployment, config, []string{
-			"clone",
-			"--branch", setup.branch,
-			"--depth", "1",
-			"--single-branch",
-			setup.repoURL,
-			".",
-		}, setup.gitDir); err != nil {
-			return nil, fmt.Errorf("git clone failed: %w", err)
-		}
-	} else {
-		// Fetch and checkout
-		if err := i.runGitWorker(ctx, deployment, config, []string{
-			"fetch", "--depth", "1", "origin", setup.branch,
-		}, setup.gitDir); err != nil {
-			return nil, fmt.Errorf("git fetch failed: %w", err)
-		}
-
-		if err := i.runGitWorker(ctx, deployment, config, []string{
-			"checkout", "-f", "FETCH_HEAD",
-		}, setup.gitDir); err != nil {
-			return nil, fmt.Errorf("git checkout failed: %w", err)
-		}
-	}
-
-	// Get the current commit SHA
-	commit, err := i.getGitCommit(ctx, deployment, config, setup.gitDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get commit: %w", err)
-	}
-
-	return &GitCloneResult{
-		Commit: commit,
-		Branch: setup.branch,
-	}, nil
-}
-
-// runGitWorker runs a git command in a worker container.
-func (i *Instance) runGitWorker(ctx context.Context, deployment string, config GitWorkerConfig, gitArgs []string, workDir string) error {
-	sshDir := filepath.Join(i.DeploymentDir(deployment), "repo", "ssh")
-
-	// Build the docker run command
-	// We use a script to set up SSH properly
-	gitScript := fmt.Sprintf(`
-set -e
+	fullScript := fmt.Sprintf(`set -e
 mkdir -p ~/.ssh
 cp /ssh-keys/id_ed25519 ~/.ssh/id_ed25519
 chmod 600 ~/.ssh/id_ed25519
@@ -187,60 +135,24 @@ ssh-keyscan -t ed25519 gitlab.com >> ~/.ssh/known_hosts 2>/dev/null || true
 ssh-keyscan -t ed25519 bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null || true
 export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_ed25519"
 cd /repo
-git %s
-`, strings.Join(gitArgs, " "))
+%s
+`, script)
 
-	image := config.Image
-	if image == "" {
-		image = DefaultGitWorkerConfig().Image
-	}
-
+	image := DefaultGitWorkerConfig().Image
 	containerName := fmt.Sprintf("stevedore-git-%s-%d", deployment, time.Now().UnixNano())
 
 	args := []string{
 		"run",
 		"--rm",
 		"--name", containerName,
+		"--entrypoint", "sh",
 		"--label", "com.stevedore.managed=true",
 		"--label", "com.stevedore.deployment=" + deployment,
 		"--label", "com.stevedore.role=git-worker",
-		"-v", sshDir + ":/ssh-keys:ro",
-		"-v", workDir + ":/repo",
+		"-v", setup.sshDir + ":/ssh-keys:ro",
+		"-v", setup.gitDir + ":/repo",
 		image,
-		"sh", "-c", gitScript,
-	}
-
-	cmd := newCommand(ctx, "docker", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-
-	return nil
-}
-
-// getGitCommit retrieves the current HEAD commit SHA.
-func (i *Instance) getGitCommit(ctx context.Context, deployment string, config GitWorkerConfig, workDir string) (string, error) {
-	image := config.Image
-	if image == "" {
-		image = DefaultGitWorkerConfig().Image
-	}
-
-	containerName := fmt.Sprintf("stevedore-git-%s-%d", deployment, time.Now().UnixNano())
-
-	args := []string{
-		"run",
-		"--rm",
-		"--name", containerName,
-		"--label", "com.stevedore.managed=true",
-		"--label", "com.stevedore.deployment=" + deployment,
-		"--label", "com.stevedore.role=git-worker",
-		"-v", workDir + ":/repo",
-		image,
-		"git", "-C", "/repo", "rev-parse", "HEAD",
+		"-c", fullScript,
 	}
 
 	cmd := newCommand(ctx, "docker", args...)
@@ -252,60 +164,12 @@ func (i *Instance) getGitCommit(ctx context.Context, deployment string, config G
 		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.String(), nil
 }
 
-// GitCloneLocal performs a git clone using the local git binary (no worker container).
-// This is useful for environments where docker-in-docker is not available.
-func (i *Instance) GitCloneLocal(ctx context.Context, deployment string) (*GitCloneResult, error) {
-	setup, err := i.prepareGitRepo(deployment)
-	if err != nil {
-		return nil, err
-	}
-
-	// Set up SSH command environment
-	sshCommand := fmt.Sprintf("ssh -o StrictHostKeyChecking=accept-new -i %s", setup.privateKeyPath)
-
-	var cmd *exec.Cmd
-	if setup.isClone {
-		cmd = newCommand(ctx, "git", "clone", "--branch", setup.branch, "--depth", "1", "--single-branch", setup.repoURL, setup.gitDir)
-	} else {
-		// First fetch
-		fetchCmd := newCommand(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
-		fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
-		var fetchStderr bytes.Buffer
-		fetchCmd.Stderr = &fetchStderr
-		if err := fetchCmd.Run(); err != nil {
-			return nil, fmt.Errorf("git fetch failed: %w: %s", err, strings.TrimSpace(fetchStderr.String()))
-		}
-
-		// Then checkout
-		cmd = newCommand(ctx, "git", "-C", setup.gitDir, "checkout", "-f", "FETCH_HEAD")
-	}
-
-	cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git operation failed: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-
-	// Get commit SHA
-	commitCmd := newCommand(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
-	commitOut, err := commitCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get commit: %w", err)
-	}
-
-	return &GitCloneResult{
-		Commit: strings.TrimSpace(string(commitOut)),
-		Branch: setup.branch,
-	}, nil
-}
-
-// GitCheckRemote performs a git fetch to check for updates without modifying the working directory.
-// This is safe to call while the deployment is running as it only updates refs, not files.
+// GitCheckRemote checks for updates by fetching from the remote in a worker container.
+// This is safe to call while the deployment is running — it only updates refs via fetch,
+// without modifying the working directory.
 func (i *Instance) GitCheckRemote(ctx context.Context, deployment string) (*GitCheckResult, error) {
 	setup, err := i.prepareGitRepo(deployment)
 	if err != nil {
@@ -316,39 +180,35 @@ func (i *Instance) GitCheckRemote(ctx context.Context, deployment string) (*GitC
 	if setup.isClone {
 		return &GitCheckResult{
 			CurrentCommit: "",
-			RemoteCommit:  "", // Would need to clone to get this
+			RemoteCommit:  "",
 			HasChanges:    true,
 			Branch:        setup.branch,
 		}, nil
 	}
 
-	// Set up SSH command environment
-	sshCommand := fmt.Sprintf("ssh -o StrictHostKeyChecking=accept-new -i %s", setup.privateKeyPath)
+	script := fmt.Sprintf(`
+CURRENT=$(git rev-parse HEAD)
+git fetch --depth 1 origin %s
+REMOTE=$(git rev-parse FETCH_HEAD)
+echo "STEVEDORE_CURRENT=$CURRENT"
+echo "STEVEDORE_REMOTE=$REMOTE"
+`, setup.branch)
 
-	// Get current HEAD commit
-	currentCommitCmd := newCommand(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
-	currentCommitOut, err := currentCommitCmd.Output()
+	output, err := i.runGitScript(ctx, deployment, script)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current commit: %w", err)
-	}
-	currentCommit := strings.TrimSpace(string(currentCommitOut))
-
-	// Fetch from remote (this only updates refs, not working directory)
-	fetchCmd := newCommand(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
-	fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
-	var fetchStderr bytes.Buffer
-	fetchCmd.Stderr = &fetchStderr
-	if err := fetchCmd.Run(); err != nil {
-		return nil, fmt.Errorf("git fetch failed: %w: %s", err, strings.TrimSpace(fetchStderr.String()))
+		return nil, fmt.Errorf("git check remote failed: %w", err)
 	}
 
-	// Get FETCH_HEAD commit (what we just fetched)
-	remoteCommitCmd := newCommand(ctx, "git", "-C", setup.gitDir, "rev-parse", "FETCH_HEAD")
-	remoteCommitOut, err := remoteCommitCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get remote commit: %w", err)
+	var currentCommit, remoteCommit string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "STEVEDORE_CURRENT=") {
+			currentCommit = strings.TrimPrefix(line, "STEVEDORE_CURRENT=")
+		}
+		if strings.HasPrefix(line, "STEVEDORE_REMOTE=") {
+			remoteCommit = strings.TrimPrefix(line, "STEVEDORE_REMOTE=")
+		}
 	}
-	remoteCommit := strings.TrimSpace(string(remoteCommitOut))
 
 	return &GitCheckResult{
 		CurrentCommit: currentCommit,
@@ -358,115 +218,69 @@ func (i *Instance) GitCheckRemote(ctx context.Context, deployment string) (*GitC
 	}, nil
 }
 
-// GitSyncClean performs a git sync and removes stale files that are no longer tracked.
-// It logs all removed files and returns them in the result.
+// GitSyncClean performs a git clone or fetch+reset in a worker container,
+// and removes stale/untracked files. All git and ssh processes are isolated
+// inside the container and cleaned up when it exits.
 func (i *Instance) GitSyncClean(ctx context.Context, deployment string, cleanEnabled bool) (*GitCloneResult, error) {
 	setup, err := i.prepareGitRepo(deployment)
 	if err != nil {
 		return nil, err
 	}
 
-	sshCommand := fmt.Sprintf("ssh -o StrictHostKeyChecking=accept-new -i %s", setup.privateKeyPath)
-
-	var removedFiles []string
-
+	var script string
 	if setup.isClone {
-		// Clone the repository
-		cmd := newCommand(ctx, "git", "clone", "--branch", setup.branch, "--depth", "1", "--single-branch", setup.repoURL, setup.gitDir)
-		cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("git clone failed: %w: %s", err, strings.TrimSpace(stderr.String()))
-		}
+		script = fmt.Sprintf(`
+git clone --branch %s --depth 1 --single-branch %s .
+echo "STEVEDORE_COMMIT=$(git rev-parse HEAD)"
+`, setup.branch, setup.repoURL)
+	} else if cleanEnabled {
+		script = fmt.Sprintf(`
+git fetch --depth 1 origin %s
+git reset --hard FETCH_HEAD
+CLEAN_OUTPUT=$(git clean -fd 2>/dev/null || true)
+if [ -n "$CLEAN_OUTPUT" ]; then
+  echo "$CLEAN_OUTPUT" | while IFS= read -r line; do
+    echo "STEVEDORE_CLEAN=$line"
+  done
+fi
+echo "STEVEDORE_COMMIT=$(git rev-parse HEAD)"
+`, setup.branch)
 	} else {
-		// Get list of tracked files before update (for stale file detection)
-		var filesBefore map[string]bool
-		if cleanEnabled {
-			filesBefore = make(map[string]bool)
-			lsCmd := newCommand(ctx, "git", "-C", setup.gitDir, "ls-tree", "-r", "--name-only", "HEAD")
-			lsOut, err := lsCmd.Output()
-			if err == nil {
-				for _, f := range strings.Split(strings.TrimSpace(string(lsOut)), "\n") {
-					if f != "" {
-						filesBefore[f] = true
-					}
-				}
-			}
+		script = fmt.Sprintf(`
+git fetch --depth 1 origin %s
+git reset --hard FETCH_HEAD
+echo "STEVEDORE_COMMIT=$(git rev-parse HEAD)"
+`, setup.branch)
+	}
+
+	output, err := i.runGitScript(ctx, deployment, script)
+	if err != nil {
+		return nil, fmt.Errorf("git sync failed: %w", err)
+	}
+
+	var commit string
+	var removedFiles []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "STEVEDORE_COMMIT=") {
+			commit = strings.TrimPrefix(line, "STEVEDORE_COMMIT=")
 		}
-
-		// Fetch
-		fetchCmd := newCommand(ctx, "git", "-C", setup.gitDir, "fetch", "--depth", "1", "origin", setup.branch)
-		fetchCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCommand)
-		var fetchStderr bytes.Buffer
-		fetchCmd.Stderr = &fetchStderr
-		if err := fetchCmd.Run(); err != nil {
-			return nil, fmt.Errorf("git fetch failed: %w: %s", err, strings.TrimSpace(fetchStderr.String()))
-		}
-
-		// Hard reset to discard any local changes
-		resetCmd := newCommand(ctx, "git", "-C", setup.gitDir, "reset", "--hard", "FETCH_HEAD")
-		var resetStderr bytes.Buffer
-		resetCmd.Stderr = &resetStderr
-		if err := resetCmd.Run(); err != nil {
-			return nil, fmt.Errorf("git reset failed: %w: %s", err, strings.TrimSpace(resetStderr.String()))
-		}
-
-		if cleanEnabled {
-			// Get list of tracked files after update
-			filesAfter := make(map[string]bool)
-			lsCmd := newCommand(ctx, "git", "-C", setup.gitDir, "ls-tree", "-r", "--name-only", "HEAD")
-			lsOut, err := lsCmd.Output()
-			if err == nil {
-				for _, f := range strings.Split(strings.TrimSpace(string(lsOut)), "\n") {
-					if f != "" {
-						filesAfter[f] = true
-					}
-				}
-			}
-
-			// Find and remove stale files (were tracked before but not after)
-			for f := range filesBefore {
-				if !filesAfter[f] {
-					filePath := filepath.Join(setup.gitDir, f)
-					if _, err := os.Stat(filePath); err == nil {
-						if err := os.Remove(filePath); err != nil {
-							// Log but don't fail on removal errors
-							fmt.Printf("Warning: failed to remove stale file %s: %v\n", f, err)
-						} else {
-							removedFiles = append(removedFiles, f)
-							fmt.Printf("Removed stale file: %s\n", f)
-						}
-					}
-				}
-			}
-
-			// Also clean untracked files
-			cleanCmd := newCommand(ctx, "git", "-C", setup.gitDir, "clean", "-fd")
-			var cleanOutput bytes.Buffer
-			cleanCmd.Stdout = &cleanOutput
-			if err := cleanCmd.Run(); err == nil {
-				// Parse clean output to log removed files
-				for _, line := range strings.Split(cleanOutput.String(), "\n") {
-					if strings.HasPrefix(line, "Removing ") {
-						f := strings.TrimPrefix(line, "Removing ")
-						removedFiles = append(removedFiles, f)
-						fmt.Printf("Removed untracked: %s\n", f)
-					}
-				}
+		if strings.HasPrefix(line, "STEVEDORE_CLEAN=") {
+			cleaned := strings.TrimPrefix(line, "STEVEDORE_CLEAN=")
+			if strings.HasPrefix(cleaned, "Removing ") {
+				f := strings.TrimPrefix(cleaned, "Removing ")
+				removedFiles = append(removedFiles, f)
+				log.Printf("Removed untracked: %s", f)
 			}
 		}
 	}
 
-	// Get commit SHA
-	commitCmd := newCommand(ctx, "git", "-C", setup.gitDir, "rev-parse", "HEAD")
-	commitOut, err := commitCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get commit: %w", err)
+	if commit == "" {
+		return nil, fmt.Errorf("git sync did not return commit SHA")
 	}
 
 	return &GitCloneResult{
-		Commit:       strings.TrimSpace(string(commitOut)),
+		Commit:       commit,
 		Branch:       setup.branch,
 		RemovedFiles: removedFiles,
 	}, nil
