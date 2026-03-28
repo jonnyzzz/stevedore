@@ -183,6 +183,11 @@ func runDaemon(instance *stevedore.Instance) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Reap zombie processes when running as PID 1 in a container.
+	// Without this, orphaned child processes (e.g., ssh spawned by git fetch)
+	// accumulate as zombies and eventually exhaust the PID space.
+	stevedore.StartZombieReaper(ctx)
+
 	daemon := stevedore.NewDaemon(instance, db, stevedore.DaemonConfig{
 		AdminKey:          adminKey,
 		ListenAddr:        getEnvDefault("STEVEDORE_LISTEN_ADDR", ":42107"),
