@@ -117,6 +117,21 @@ func (i *Instance) prepareGitRepo(deployment string) (*gitRepoSetup, error) {
 	}, nil
 }
 
+// hostPath translates a container-local path to a host path for docker volume mounts.
+// When stevedore runs inside a container, its Root (e.g. /opt/stevedore) may differ
+// from the host path (set via STEVEDORE_HOST_ROOT). Child containers need host paths.
+func (i *Instance) hostPath(containerPath string) string {
+	hostRoot := os.Getenv("STEVEDORE_HOST_ROOT")
+	if hostRoot == "" || hostRoot == i.Root {
+		return containerPath
+	}
+	rel, err := filepath.Rel(i.Root, containerPath)
+	if err != nil {
+		return containerPath
+	}
+	return filepath.Join(hostRoot, rel)
+}
+
 // runGitScript runs a shell script in a git worker container.
 // The script is executed after SSH keys are configured. The repo is mounted at /repo.
 // Returns the stdout output.
@@ -150,8 +165,8 @@ cd /repo
 		"--label", "com.stevedore.managed=true",
 		"--label", "com.stevedore.deployment=" + deployment,
 		"--label", "com.stevedore.role=git-worker",
-		"-v", setup.sshDir + ":/ssh-keys:ro",
-		"-v", setup.gitDir + ":/repo",
+		"-v", i.hostPath(setup.sshDir) + ":/ssh-keys:ro",
+		"-v", i.hostPath(setup.gitDir) + ":/repo",
 		image,
 		"-c", fullScript,
 	}

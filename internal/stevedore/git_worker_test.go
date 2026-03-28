@@ -12,6 +12,26 @@ import (
 	"time"
 )
 
+func TestHostPath_SameRoot(t *testing.T) {
+	instance := NewInstance("/opt/stevedore")
+	// When STEVEDORE_HOST_ROOT is not set or matches Root, path is unchanged
+	t.Setenv("STEVEDORE_HOST_ROOT", "")
+	if got := instance.hostPath("/opt/stevedore/deployments/foo/repo/ssh"); got != "/opt/stevedore/deployments/foo/repo/ssh" {
+		t.Errorf("expected unchanged path, got %q", got)
+	}
+}
+
+func TestHostPath_DifferentRoot(t *testing.T) {
+	instance := NewInstance("/opt/stevedore")
+	// When STEVEDORE_HOST_ROOT differs, paths are remapped
+	t.Setenv("STEVEDORE_HOST_ROOT", "/home/runner/state")
+	got := instance.hostPath("/opt/stevedore/deployments/foo/repo/ssh")
+	want := "/home/runner/state/deployments/foo/repo/ssh"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+}
+
 func TestPrepareGitRepo_ValidatesDeploymentName(t *testing.T) {
 	instance := NewInstance(t.TempDir())
 	_, err := instance.prepareGitRepo("../../../etc/passwd")
@@ -484,19 +504,13 @@ func runDockerGit(t *testing.T, ctx context.Context, script string, volumes map[
 	return stdout.String()
 }
 
-// fixDockerOwnership fixes ownership of files created by Docker containers (which run as root).
-// This is needed so t.TempDir() cleanup can delete the files.
+// fixDockerOwnership fixes permissions on files created by Docker containers (which run as root).
+// On CI the test runs as non-root, so we use a container to chmod the files.
 func fixDockerOwnership(t *testing.T, dir string) {
 	t.Helper()
-	uid := os.Getuid()
-	gid := os.Getgid()
-	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		_ = os.Chown(path, uid, gid)
-		return nil
-	})
+	// Use docker to fix permissions since the host user can't chown root-owned files
+	cmd := exec.Command("docker", "run", "--rm", "-v", dir+":/data", "alpine:3.21", "chmod", "-R", "a+rwX", "/data")
+	_ = cmd.Run()
 }
 
 // setupGitRepoDir creates the minimal directory structure for a deployment repo.
