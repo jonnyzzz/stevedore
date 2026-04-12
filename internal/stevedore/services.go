@@ -147,7 +147,7 @@ func (i *Instance) listStevedoreContainerIDs(ctx context.Context) ([]string, err
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
@@ -185,7 +185,7 @@ func (i *Instance) inspectServiceWithParams(ctx context.Context, containerID str
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return nil, fmt.Errorf("docker inspect failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 

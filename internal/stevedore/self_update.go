@@ -62,7 +62,7 @@ func (s *SelfUpdate) NeedsSelfUpdate(ctx context.Context, currentCommit string) 
 	cmd.Dir = gitDir
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return false, "", fmt.Errorf("get HEAD commit: %w", err)
 	}
 
@@ -83,7 +83,7 @@ func (s *SelfUpdate) getCurrentImageTag(ctx context.Context) (string, error) {
 	cmd := newCommand(ctx, "docker", "inspect", "--format", "{{.Config.Image}}", s.config.ContainerName)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return "", fmt.Errorf("inspect container image: %w", err)
 	}
 	return strings.TrimSpace(stdout.String()), nil
@@ -97,7 +97,7 @@ func (s *SelfUpdate) tagImageAsBackup(ctx context.Context, currentImage string) 
 	backupTag := fmt.Sprintf("%s:backup-%d", baseName, time.Now().Unix())
 
 	cmd := newCommand(ctx, "docker", "tag", currentImage, backupTag)
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return "", fmt.Errorf("tag backup image: %w", err)
 	}
 
@@ -149,7 +149,7 @@ func (s *SelfUpdate) BuildNewImage(ctx context.Context) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return "", fmt.Errorf("docker build failed: %w: %s", err, stderr.String())
 	}
 
@@ -172,7 +172,7 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 		containerName)
 	var mountsOut bytes.Buffer
 	mountsCmd.Stdout = &mountsOut
-	if err := mountsCmd.Run(); err != nil {
+	if err := runCommand(mountsCmd); err != nil {
 		return fmt.Errorf("inspect container mounts: %w", err)
 	}
 	hostRoot := strings.TrimSpace(mountsOut.String())
@@ -186,7 +186,7 @@ func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 		"{{.HostConfig.RestartPolicy.Name}}", containerName)
 	var policyOut bytes.Buffer
 	policyCmd.Stdout = &policyOut
-	if err := policyCmd.Run(); err != nil {
+	if err := runCommand(policyCmd); err != nil {
 		return fmt.Errorf("inspect restart policy: %w", err)
 	}
 	restartPolicy := strings.TrimSpace(policyOut.String())
@@ -339,7 +339,7 @@ log "Update complete!"
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return fmt.Errorf("spawn update worker: %w: %s", err, stderr.String())
 	}
 

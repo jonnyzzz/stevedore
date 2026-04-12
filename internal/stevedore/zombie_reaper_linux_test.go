@@ -132,6 +132,55 @@ func TestZombieReaper(t *testing.T) {
 	}
 }
 
+// TestZombieReaper_DoesNotStealExecChildren verifies that the zombie reaper
+// does not interfere with exec.Cmd.Run() by stealing its child process.
+// This was the root cause of "waitid: no child processes" errors in production.
+func TestZombieReaper_DoesNotStealExecChildren(t *testing.T) {
+	setSubreaper(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go zombieReaperLoop(ctx)
+	time.Sleep(50 * time.Millisecond)
+
+	// Run many concurrent exec.Cmd operations while the reaper is active.
+	// Without the RWMutex fix, some of these would fail with "waitid: no child processes".
+	const concurrency = 10
+	const iterations = 20
+	errors := make(chan error, concurrency*iterations)
+
+	for g := 0; g < concurrency; g++ {
+		go func() {
+			for i := 0; i < iterations; i++ {
+				cmd := newCommand(ctx, "true")
+				if err := runCommand(cmd); err != nil {
+					errors <- fmt.Errorf("runCommand(true) failed: %w", err)
+					return
+				}
+				// Spawn an orphan between commands to trigger SIGCHLD / reaper activity
+				spawnOrphan(t)
+			}
+		}()
+	}
+
+	// Wait for all goroutines (they either finish or push an error)
+	time.Sleep(3 * time.Second)
+	close(errors)
+
+	var fails []error
+	for err := range errors {
+		fails = append(fails, err)
+	}
+	if len(fails) > 0 {
+		t.Errorf("%d/%d commands failed (expected 0 with RWMutex fix):", len(fails), concurrency*iterations)
+		for _, err := range fails[:min(5, len(fails))] {
+			t.Errorf("  %v", err)
+		}
+	} else {
+		t.Logf("All %d concurrent commands succeeded with reaper running", concurrency*iterations)
+	}
+}
+
 // TestReapZombies_DirectCall verifies that reapZombies() correctly reaps zombie processes.
 func TestReapZombies_DirectCall(t *testing.T) {
 	setSubreaper(t)

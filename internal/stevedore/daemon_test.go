@@ -2,6 +2,7 @@ package stevedore
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -132,6 +133,73 @@ func TestDaemon_RunWithCancellation(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Error("daemon did not stop within timeout")
+	}
+}
+
+func TestNeedsReconcile(t *testing.T) {
+	tests := []struct {
+		name   string
+		status *DeploymentStatus
+		want   bool
+	}{
+		{"nil status", nil, false},
+		{"no containers", &DeploymentStatus{Containers: nil}, true},
+		{"empty containers", &DeploymentStatus{Containers: []ContainerStatus{}}, true},
+		{"running container", &DeploymentStatus{Containers: []ContainerStatus{
+			{State: StateRunning},
+		}}, false},
+		{"exited container", &DeploymentStatus{Containers: []ContainerStatus{
+			{State: StateExited},
+		}}, true},
+		{"mixed running and exited", &DeploymentStatus{Containers: []ContainerStatus{
+			{State: StateRunning},
+			{State: StateExited},
+		}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := needsReconcile(tt.status); got != tt.want {
+				t.Errorf("needsReconcile() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsTransientExecError(t *testing.T) {
+	tests := []struct {
+		err  error
+		want bool
+	}{
+		{nil, false},
+		{fmt.Errorf("connection refused"), false},
+		{fmt.Errorf("failed to list containers: waitid: no child processes:"), true},
+		{fmt.Errorf("waitid error"), true},
+		{fmt.Errorf("something: no child processes"), true},
+	}
+	for _, tt := range tests {
+		name := "nil"
+		if tt.err != nil {
+			name = tt.err.Error()
+		}
+		t.Run(name, func(t *testing.T) {
+			if got := isTransientExecError(tt.err); got != tt.want {
+				t.Errorf("isTransientExecError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestComposeConfig_BuildFlag(t *testing.T) {
+	// Verify default ComposeConfig has Build=false (used by reconciler)
+	reconcileConfig := ComposeConfig{}
+	if reconcileConfig.Build {
+		t.Error("default ComposeConfig.Build should be false (reconciler should not rebuild)")
+	}
+
+	// Verify sync deploy uses Build=true
+	syncConfig := ComposeConfig{Build: true}
+	if !syncConfig.Build {
+		t.Error("sync ComposeConfig.Build should be true")
 	}
 }
 

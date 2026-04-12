@@ -12,3 +12,8 @@ import (
 func newCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, name, args...)
 }
+
+// runCommand runs an exec.Cmd. On non-Unix, no zombie reaper synchronization needed.
+func runCommand(cmd *exec.Cmd) error {
+	return cmd.Run()
+}

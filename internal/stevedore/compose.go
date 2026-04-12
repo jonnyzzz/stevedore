@@ -47,6 +47,10 @@ func FindComposeEntrypoint(repoRoot string) (string, error) {
 type ComposeConfig struct {
 	// Timeout for compose operations
 	Timeout time.Duration
+	// Build controls whether images are rebuilt (--build flag).
+	// Set to true for deploy-after-sync (source code changed).
+	// Set to false for reconcile restarts (just restart existing images).
+	Build bool
 }
 
 // DefaultComposeConfig returns the default configuration for Compose.
@@ -110,15 +114,17 @@ func (i *Instance) Deploy(ctx context.Context, deployment string, config Compose
 	}
 
 	// Run docker compose up
-	// --build ensures images are rebuilt when Dockerfile changes
 	args := []string{
 		"compose",
 		"-f", composePath,
 		"-p", projectName,
 		"up", "-d",
-		"--build",
-		"--remove-orphans",
 	}
+	if config.Build {
+		// --build ensures images are rebuilt when source code changes (deploy after sync)
+		args = append(args, "--build")
+	}
+	args = append(args, "--remove-orphans")
 
 	cmd := newCommand(ctx, "docker", args...)
 	cmd.Dir = gitDir
@@ -142,7 +148,7 @@ func (i *Instance) Deploy(ctx context.Context, deployment string, config Compose
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return nil, fmt.Errorf("docker compose up failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
@@ -208,7 +214,7 @@ func (i *Instance) Stop(ctx context.Context, deployment string, config ComposeCo
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return fmt.Errorf("docker compose down failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
@@ -231,7 +237,7 @@ func (i *Instance) getComposeServices(ctx context.Context, composePath, projectN
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return nil, fmt.Errorf("failed to list services: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 

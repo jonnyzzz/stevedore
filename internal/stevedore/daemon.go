@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -267,7 +268,7 @@ func (d *Daemon) syncDeployment(parentCtx context.Context, deployment string) {
 	deployCtx, deployCancel := context.WithTimeout(parentCtx, d.config.DeployTimeout)
 	defer deployCancel()
 
-	deployResult, err := d.instance.Deploy(deployCtx, deployment, ComposeConfig{})
+	deployResult, err := d.instance.Deploy(deployCtx, deployment, ComposeConfig{Build: true})
 	if err != nil {
 		log.Printf("Deploy failed for %s: %v", deployment, err)
 		return
@@ -327,7 +328,7 @@ func (d *Daemon) reconcileDeployment(parentCtx context.Context, deployment strin
 		return
 	}
 
-	status, err := d.instance.GetDeploymentStatus(parentCtx, deployment)
+	status, err := d.getDeploymentStatusWithRetry(parentCtx, deployment)
 	if err != nil {
 		log.Printf("Error getting deployment status for %s: %v", deployment, err)
 		return
@@ -365,6 +366,27 @@ func (d *Daemon) reconcileDeployment(parentCtx context.Context, deployment strin
 		deployment, deployResult.ProjectName, deployResult.Services)
 
 	d.queryServer.NotifyChange()
+}
+
+// getDeploymentStatusWithRetry retries GetDeploymentStatus once on transient errors
+// (e.g., "waitid: no child processes" from zombie reaper race).
+func (d *Daemon) getDeploymentStatusWithRetry(ctx context.Context, deployment string) (*DeploymentStatus, error) {
+	status, err := d.instance.GetDeploymentStatus(ctx, deployment)
+	if err != nil && isTransientExecError(err) {
+		time.Sleep(100 * time.Millisecond)
+		return d.instance.GetDeploymentStatus(ctx, deployment)
+	}
+	return status, err
+}
+
+// isTransientExecError returns true if the error is likely a transient process-related failure.
+func isTransientExecError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no child processes") ||
+		strings.Contains(msg, "waitid")
 }
 
 func needsReconcile(status *DeploymentStatus) bool {

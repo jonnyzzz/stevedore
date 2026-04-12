@@ -356,7 +356,7 @@ func (s *Server) handleAPIDeploy(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("API: triggering deploy for %s", deployment)
 
-	result, err := s.instance.Deploy(ctx, deployment, ComposeConfig{})
+	result, err := s.instance.Deploy(ctx, deployment, ComposeConfig{Build: true})
 	if err != nil {
 		s.jsonError(w, http.StatusInternalServerError, fmt.Sprintf("deploy failed: %v", err))
 		return

@@ -44,8 +44,13 @@ func zombieReaperLoop(ctx context.Context) {
 }
 
 // reapZombies reaps all currently-waitable zombie child processes.
+// It acquires the exec write lock to prevent racing with runCommand(),
+// which uses exec.Cmd.Wait() to collect specific child PIDs.
 // Returns the number of processes reaped.
 func reapZombies() int {
+	execMu.Lock()
+	defer execMu.Unlock()
+
 	reaped := 0
 	for {
 		var status syscall.WaitStatus

@@ -164,7 +164,7 @@ func (i *Instance) listProjectContainers(ctx context.Context, projectName string
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
@@ -196,7 +196,7 @@ func (i *Instance) inspectContainer(ctx context.Context, containerID string) (*C
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(cmd); err != nil {
 		return nil, fmt.Errorf("docker inspect failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
