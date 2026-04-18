@@ -96,6 +96,7 @@ func TestSelfUpgrade(t *testing.T) {
 		"docker-compose.yaml": `services:
   web:
     image: alpine:latest
+    init: true
     command: ["sh", "-c", "while true; do echo 'Service running'; sleep 10; done"]
     labels:
       - "com.stevedore.test=simple-app"

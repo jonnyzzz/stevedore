@@ -58,6 +58,7 @@ func TestMonitoringWorkflow(t *testing.T) {
 		"docker-compose.yaml": `services:
   web:
     image: alpine:latest
+    init: true
     command: ["sleep", "infinity"]
 `,
 		"config.txt": "version=1.0",

@@ -47,6 +47,7 @@ func TestReconcileRestartsStoppedContainers(t *testing.T) {
 		"docker-compose.yaml": `services:
   app:
     image: alpine:latest
+    init: true
     command: ["sleep", "infinity"]
 `,
 	}); err != nil {
