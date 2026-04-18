@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -194,6 +195,12 @@ func runDaemon(instance *stevedore.Instance) {
 		Version:           Version,
 		Build:             GitCommit,
 		ReconcileInterval: getEnvDuration("STEVEDORE_RECONCILE_INTERVAL", 30*time.Second),
+		Watchdog: stevedore.WatchdogConfig{
+			Interval:      getEnvDuration("STEVEDORE_WATCHDOG_INTERVAL", 30*time.Second),
+			WarnPct:       getEnvFloat("STEVEDORE_WATCHDOG_WARN_PCT", 0.5),
+			RestartPct:    getEnvFloat("STEVEDORE_WATCHDOG_RESTART_PCT", 0.8),
+			MinRestartGap: getEnvDuration("STEVEDORE_WATCHDOG_MIN_RESTART_GAP", 10*time.Minute),
+		},
 	})
 
 	// Set the executor so API can run CLI commands
@@ -885,6 +892,19 @@ func getEnvDuration(name string, defaultValue time.Duration) time.Duration {
 		return defaultValue
 	}
 	return d
+}
+
+func getEnvFloat(name string, defaultValue float64) float64 {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return defaultValue
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		log.Printf("WARNING: invalid %s=%q, using %v", name, v, defaultValue)
+		return defaultValue
+	}
+	return f
 }
 
 func printUsageTo(w io.Writer) {

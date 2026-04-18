@@ -10,10 +10,13 @@ services:
       STEVEDORE_DB_KEY_FILE: /opt/stevedore/system/db.key
       STEVEDORE_SOURCE_REPO: ${STEVEDORE_SOURCE_REPO:-}
       STEVEDORE_SOURCE_REF: ${STEVEDORE_SOURCE_REF:-}
-    # Mount Docker socket to allow Docker operations from within the container
+    # Mount Docker socket to allow Docker operations from within the container.
+    # /sys/fs/cgroup is read-only so the PID-pressure watchdog can read
+    # pids.current / pids.max for managed containers.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${STEVEDORE_HOST_ROOT:-/opt/stevedore}:/opt/stevedore
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
     # Keep the container running for interactive use
     # Comment out the 'command' line if you want to run the default CMD from Dockerfile
     # command: tail -f /dev/null

@@ -269,6 +269,7 @@ The file follows Docker Compose syntax with optional Stevedore-specific extensio
 services:      ### usual docker compose below, it builds the application container!
   web:
     build: .
+    init: true                     # REQUIRED — see docs/INIT.md
     ports:
       - "3000:3000"
     healthcheck:
@@ -281,6 +282,7 @@ services:      ### usual docker compose below, it builds the application contain
 
   worker:
     build: ./worker
+    init: true                     # REQUIRED — see docs/INIT.md
     depends_on:
       - web
 
@@ -328,6 +330,7 @@ logs retention.
 - `docs/REPOSITORIES.md`
 - `docs/SECRETS.md`
 - `docs/INGRESS.md` — Ingress configuration and stevedore-dyndns integration
+- `docs/INIT.md` — Required `init: true` per service + PID-pressure watchdog
 - `docs/QUERY_SOCKET_PROTOCOL.md` — Query socket API specification
 - `docs/INTEGRATION_TEST_PLAN.md`
 

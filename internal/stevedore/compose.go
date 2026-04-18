@@ -3,10 +3,12 @@ package stevedore
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -111,6 +113,14 @@ func (i *Instance) Deploy(ctx context.Context, deployment string, config Compose
 	}
 	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create shared directory: %w", err)
+	}
+
+	// Enforce that every service enables `init: true` (or explicitly opts out
+	// via the `stevedore.init.required=false` label). This makes Docker use
+	// tini as PID 1 inside each container, which reaps orphans that would
+	// otherwise accumulate as zombies and exhaust the cgroup PID limit.
+	if err := i.checkInitRequirement(ctx, composePath, projectName, gitDir); err != nil {
+		return nil, err
 	}
 
 	// Run docker compose up
@@ -254,4 +264,97 @@ func (i *Instance) getComposeServices(ctx context.Context, composePath, projectN
 // ComposeProjectName generates the compose project name for a deployment.
 func ComposeProjectName(deployment string) string {
 	return "stevedore-" + deployment
+}
+
+// InitEnforceLabel names a Compose service label that opts out of the `init: true`
+// enforcement performed on every deploy. Default behavior is enforce=true for
+// every service; set this label to "false" to skip the check.
+//
+// Use sparingly: services that opt out must reap their own orphans (e.g. run
+// tini, s6-overlay, or another init inside the image). See docs/INIT.md.
+const InitEnforceLabel = "stevedore.init.enforce"
+
+// checkInitRequirement resolves the compose project and verifies that every
+// service has `init: true` set, or opts out via the InitEnforceLabel label set
+// to "false". On failure, returns an error that names the offending services
+// and instructs how to fix them.
+func (i *Instance) checkInitRequirement(ctx context.Context, composePath, projectName, gitDir string) error {
+	services, err := parseComposeServicesJSON(ctx, composePath, projectName, gitDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve compose services for init check: %w", err)
+	}
+
+	missing := servicesMissingInit(services)
+	if len(missing) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"init: true is required on every service — missing in: %s\n"+
+			"\n"+
+			"Fix the compose file by adding `init: true` to each listed service, e.g.:\n"+
+			"\n"+
+			"  services:\n"+
+			"    %s:\n"+
+			"      init: true\n"+
+			"\n"+
+			"This tells Docker to use tini as PID 1 and reap orphaned subprocesses.\n"+
+			"If a service manages its own init (e.g. s6-overlay), opt out with the label\n"+
+			"  labels:\n"+
+			"    %s: \"false\"\n",
+		strings.Join(missing, ", "),
+		missing[0],
+		InitEnforceLabel,
+	)
+}
+
+// composeConfigService is the subset of `docker compose config --format json`
+// output that the init-enforcement check needs.
+type composeConfigService struct {
+	Init   *bool             `json:"init"`
+	Labels map[string]string `json:"labels"`
+}
+
+// parseComposeServicesJSON runs `docker compose config --format json` and
+// returns a name → service-config map for use by the init check.
+func parseComposeServicesJSON(ctx context.Context, composePath, projectName, gitDir string) (map[string]composeConfigService, error) {
+	args := []string{
+		"compose",
+		"-f", composePath,
+		"-p", projectName,
+		"config", "--format", "json",
+	}
+	cmd := newCommand(ctx, "docker", args...)
+	cmd.Dir = gitDir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := runCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	var parsed struct {
+		Services map[string]composeConfigService `json:"services"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
+		return nil, fmt.Errorf("parse compose config json: %w", err)
+	}
+	return parsed.Services, nil
+}
+
+// servicesMissingInit returns the sorted names of services that neither enable
+// `init: true` nor opt out via the InitEnforceLabel label set to "false".
+func servicesMissingInit(services map[string]composeConfigService) []string {
+	var missing []string
+	for name, svc := range services {
+		if svc.Init != nil && *svc.Init {
+			continue
+		}
+		if strings.EqualFold(svc.Labels[InitEnforceLabel], "false") {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	sort.Strings(missing)
+	return missing
 }

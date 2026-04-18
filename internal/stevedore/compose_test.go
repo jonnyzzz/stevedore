@@ -64,3 +64,69 @@ func TestFindComposeEntrypoint_ErrorsWhenMissing(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
+
+func TestServicesMissingInit_PassesWhenAllHaveInit(t *testing.T) {
+	trueVal := true
+	services := map[string]composeConfigService{
+		"web":    {Init: &trueVal},
+		"worker": {Init: &trueVal},
+	}
+	if got := servicesMissingInit(services); len(got) != 0 {
+		t.Fatalf("expected no missing services, got %v", got)
+	}
+}
+
+func TestServicesMissingInit_FlagsServicesWithoutInit(t *testing.T) {
+	trueVal := true
+	falseVal := false
+	services := map[string]composeConfigService{
+		"web":        {Init: &trueVal},
+		"bot":        {},            // missing → must be flagged
+		"legacy":     {Init: &falseVal}, // explicit false → must be flagged
+		"background": {},            // missing → must be flagged
+	}
+	got := servicesMissingInit(services)
+	want := []string{"background", "bot", "legacy"}
+	if !stringSlicesEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestServicesMissingInit_RespectsOptOutLabel(t *testing.T) {
+	services := map[string]composeConfigService{
+		"sidecar": {
+			Labels: map[string]string{InitEnforceLabel: "false"},
+		},
+		"sidecar-loud": {
+			Labels: map[string]string{InitEnforceLabel: "FALSE"}, // case-insensitive
+		},
+	}
+	if got := servicesMissingInit(services); len(got) != 0 {
+		t.Fatalf("opt-out label should skip check, got %v", got)
+	}
+}
+
+func TestServicesMissingInit_IgnoresUnrelatedLabels(t *testing.T) {
+	services := map[string]composeConfigService{
+		"web": {
+			Labels: map[string]string{"stevedore.ingress.enabled": "true"},
+			// no init, no opt-out → still flagged
+		},
+	}
+	got := servicesMissingInit(services)
+	if len(got) != 1 || got[0] != "web" {
+		t.Fatalf("expected [web], got %v", got)
+	}
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

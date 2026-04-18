@@ -20,6 +20,7 @@ type DaemonConfig struct {
 	DeployTimeout     time.Duration // Timeout for deploy operations (default: 10m)
 	ReconcileInterval time.Duration // Interval for reconcile checks (default: 30s)
 	QuerySocketPath   string        // Path for query socket (default: /var/run/stevedore/query.sock)
+	Watchdog          WatchdogConfig // PID-pressure watchdog thresholds and interval
 }
 
 // Daemon manages the polling loop and HTTP server.
@@ -87,6 +88,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	// Start reconcile loop in background
 	go d.runReconcileLoop(ctx)
+
+	// Start PID-pressure watchdog in background
+	watchdog := NewWatchdog(d.instance, d, d.config.Watchdog)
+	go watchdog.Run(ctx)
 
 	// Run polling loop
 	d.runPollLoop(ctx)

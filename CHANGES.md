@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.10.0] - 2026-04-18
+
+### Added
+
+- **PID-pressure watchdog** - Daemon monitors each managed container's cgroup `pids.current / pids.max` ratio and restarts the deployment before fork() exhaustion. Thresholds configurable via `STEVEDORE_WATCHDOG_WARN_PCT` (default 0.5), `STEVEDORE_WATCHDOG_RESTART_PCT` (default 0.8), `STEVEDORE_WATCHDOG_INTERVAL` (default 30s), and `STEVEDORE_WATCHDOG_MIN_RESTART_GAP` (default 10m). Requires `/sys/fs/cgroup` read-only mount (added to `docker-compose.yml`). Skips the `stevedore` deployment itself.
+- **Required `init: true` per service** - Stevedore now refuses to deploy a compose file whose services don't set `init: true`. Error names the offending services and shows how to fix them. Opt out per-service with label `stevedore.init.enforce: "false"` for images that ship their own init. See `docs/INIT.md`.
+
+### Changed
+
+- `docker-compose.yml` now bind-mounts `/sys/fs/cgroup:/sys/fs/cgroup:ro` so the watchdog can read per-container PID counters.
+
+### Breaking
+
+- Compose files without `init: true` on every service are rejected. Set `init: true` on each service (recommended) or add the `stevedore.init.enforce: "false"` label to opt out.
+
 ## [0.9.1] - 2026-01-26
 
 ### Fixed
