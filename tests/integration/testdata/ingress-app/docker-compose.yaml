@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    init: true
     environment:
       - STEVEDORE_DEPLOYMENT=${STEVEDORE_DEPLOYMENT:-test}
     labels:

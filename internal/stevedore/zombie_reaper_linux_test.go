@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
@@ -66,10 +65,15 @@ func countZombieChildren(t *testing.T) int {
 // spawnOrphan creates a child process that backgrounds a grandchild, then exits.
 // The grandchild gets reparented to the subreaper (our test process) and becomes
 // a zombie when it exits.
+//
+// Uses runCommand so the exec RWMutex read lock is held: otherwise the
+// concurrent reaper goroutine (which holds the write lock during reapZombies)
+// can win the race to wait4 the sh child, and Go's exec.Cmd.Wait returns
+// "waitid: no child processes". That was the CI flake on earlier runs.
 func spawnOrphan(t *testing.T) {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", "sleep 0.2 &")
-	if err := cmd.Run(); err != nil {
+	cmd := newCommand(context.Background(), "sh", "-c", "sleep 0.2 &")
+	if err := runCommand(cmd); err != nil {
 		t.Fatalf("failed to spawn orphan: %v", err)
 	}
 }
