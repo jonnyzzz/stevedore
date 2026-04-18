@@ -299,6 +299,7 @@ if docker run -d \
   -p 42107:42107 \
   --cgroupns=host \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/run/stevedore:/var/run/stevedore \
   -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
   -v "%s:/opt/stevedore" \
   "%s" \

@@ -240,7 +240,7 @@ Restart=always
 RestartSec=2
 ExecStartPre=-${docker_bin} rm -f ${STEVEDORE_CONTAINER_NAME}
 ExecStartPre=-/bin/mkdir -p /var/run/stevedore
-ExecStart=${docker_bin} run --name ${STEVEDORE_CONTAINER_NAME} --env-file ${STEVEDORE_CONTAINER_ENV} -p 42107:42107 -v /var/run/docker.sock:/var/run/docker.sock -v /var/run/stevedore:/var/run/stevedore -v ${STEVEDORE_HOST_ROOT}:/opt/stevedore ${STEVEDORE_IMAGE}
+ExecStart=${docker_bin} run --name ${STEVEDORE_CONTAINER_NAME} --cgroupns=host --env-file ${STEVEDORE_CONTAINER_ENV} -p 42107:42107 -v /var/run/docker.sock:/var/run/docker.sock -v /sys/fs/cgroup:/sys/fs/cgroup:ro -v /var/run/stevedore:/var/run/stevedore -v ${STEVEDORE_HOST_ROOT}:/opt/stevedore ${STEVEDORE_IMAGE}
 ExecStop=-${docker_bin} stop ${STEVEDORE_CONTAINER_NAME}
 TimeoutStopSec=30
 
@@ -258,9 +258,11 @@ start_container_without_systemd() {
   docker_cmd rm -f "${STEVEDORE_CONTAINER_NAME}" >/dev/null 2>&1 || true
   mkdir -p /var/run/stevedore 2>/dev/null || true
   docker_cmd run -d --name "${STEVEDORE_CONTAINER_NAME}" --restart unless-stopped \
+    --cgroupns=host \
     --env-file "${STEVEDORE_CONTAINER_ENV}" \
     -p 42107:42107 \
     -v /var/run/docker.sock:/var/run/docker.sock \
+    -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
     -v /var/run/stevedore:/var/run/stevedore \
     -v "${STEVEDORE_HOST_ROOT}:/opt/stevedore" \
     "${STEVEDORE_IMAGE}" >/dev/null
