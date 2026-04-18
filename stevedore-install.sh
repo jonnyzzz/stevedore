@@ -248,6 +248,12 @@ TimeoutStopSec=30
 WantedBy=multi-user.target
 EOF
 
+  # Sentinel: tells the running stevedore that its container is managed by
+  # systemd. Self-update then skips the worker+docker-run path and simply exits
+  # the process, letting systemd's Restart=always bring the container back with
+  # the new stevedore:latest image. Avoids racing docker run against systemd.
+  sudo_cmd sh -c "mkdir -p '${STEVEDORE_HOST_ROOT}/system' && : > '${STEVEDORE_HOST_ROOT}/system/managed_by.systemd'"
+
   sudo_cmd systemctl daemon-reload
   sudo_cmd systemctl enable "${STEVEDORE_SERVICE_NAME}"
   sudo_cmd systemctl restart "${STEVEDORE_SERVICE_NAME}"
@@ -256,6 +262,7 @@ EOF
 start_container_without_systemd() {
   log "systemd not detected; starting container via docker restart policy"
   docker_cmd rm -f "${STEVEDORE_CONTAINER_NAME}" >/dev/null 2>&1 || true
+  rm -f "${STEVEDORE_HOST_ROOT}/system/managed_by.systemd" 2>/dev/null || true
   mkdir -p /var/run/stevedore 2>/dev/null || true
   docker_cmd run -d --name "${STEVEDORE_CONTAINER_NAME}" --restart unless-stopped \
     --cgroupns=host \

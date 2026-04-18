@@ -157,12 +157,34 @@ func (s *SelfUpdate) BuildNewImage(ctx context.Context) (string, error) {
 	return imageTag, nil
 }
 
-// Execute performs the self-update by spawning an update worker.
-// The worker will stop the current container, remove it, and start a new one with the new image.
+// ManagedBySystemdSentinel is written by the installer when stevedore's
+// container is started by a systemd unit. Its presence tells self-update to
+// short-circuit the worker+docker-run dance and simply exit the process — the
+// systemd unit's Restart=always then re-runs its own `docker run` with the new
+// stevedore:latest image. This avoids racing our worker's docker run against
+// systemd's ExecStart (which was corrupting --cgroupns=host and mount flags).
+const ManagedBySystemdSentinel = "managed_by.systemd"
+
+// IsManagedBySystemd returns true when self-update should defer to systemd
+// rather than recreating the container via a worker + docker run.
+func (s *SelfUpdate) IsManagedBySystemd() bool {
+	sentinel := filepath.Join(s.instance.SystemDir(), ManagedBySystemdSentinel)
+	_, err := os.Stat(sentinel)
+	return err == nil
+}
+
+// Execute performs the self-update. If the container is managed by systemd
+// (per the installer's sentinel file), the current process is scheduled to
+// exit shortly so systemd can restart it with the new image. Otherwise an
+// update worker is spawned to stop/remove/re-run via docker.
 //
-// NOTE: This method will cause the current process to exit (the container will be stopped)!
+// NOTE: This method will cause the current process to exit!
 func (s *SelfUpdate) Execute(ctx context.Context, newImageTag string) error {
 	containerName := s.config.ContainerName
+
+	if s.IsManagedBySystemd() {
+		return s.executeSystemdManaged(newImageTag)
+	}
 
 	log.Printf("Self-update: preparing to replace container %s with image %s", containerName, newImageTag)
 
@@ -354,6 +376,25 @@ log "Update complete!"
 	log.Printf("Update worker spawned: %s", workerName)
 	log.Printf("Self-update initiated. This container will be replaced shortly.")
 
+	return nil
+}
+
+// systemdExitDelay is the grace period between the HTTP response being sent
+// and the process exit. Long enough for the HTTP client to read the response,
+// short enough that the user feels the restart promptly.
+var systemdExitDelay = 2 * time.Second
+
+// executeSystemdManaged schedules the process to exit so systemd's
+// Restart=always picks up the new image. The exit is delayed so the caller
+// has time to send the HTTP response and log.
+func (s *SelfUpdate) executeSystemdManaged(newImageTag string) error {
+	log.Printf("Self-update: systemd-managed — image %s tagged, exiting in %s so systemd restarts us",
+		newImageTag, systemdExitDelay)
+	go func() {
+		time.Sleep(systemdExitDelay)
+		log.Printf("Self-update: exiting now — expect systemd to restart within RestartSec")
+		os.Exit(0)
+	}()
 	return nil
 }
 

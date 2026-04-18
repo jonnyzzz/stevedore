@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - **PID-pressure watchdog** - Daemon monitors each managed container's cgroup `pids.current / pids.max` ratio and restarts the deployment before fork() exhaustion. Thresholds configurable via `STEVEDORE_WATCHDOG_WARN_PCT` (default 0.5), `STEVEDORE_WATCHDOG_RESTART_PCT` (default 0.8), `STEVEDORE_WATCHDOG_INTERVAL` (default 30s), and `STEVEDORE_WATCHDOG_MIN_RESTART_GAP` (default 10m). Requires `/sys/fs/cgroup` read-only mount (added to `docker-compose.yml`). Skips the `stevedore` deployment itself.
 - **Required `init: true` per service** - Stevedore now refuses to deploy a compose file whose services don't set `init: true`. Error names the offending services and shows how to fix them. Opt out per-service with label `stevedore.init.enforce: "false"` for images that ship their own init. See `docs/INIT.md`.
+- **Systemd-aware self-update** - When the installer places a sentinel at `/opt/stevedore/system/managed_by.systemd`, self-update skips the worker+docker-run path and simply exits, letting systemd's `Restart=always` relaunch the container with the freshly-built `stevedore:latest`. Removes the race between the worker's `docker run` and systemd's `ExecStart`.
 
 ### Changed
 
