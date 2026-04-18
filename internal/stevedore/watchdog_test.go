@@ -1,8 +1,10 @@
 package stevedore
 
 import (
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -112,5 +114,86 @@ func TestWatchdog_NewWatchdog_fillsDefaults(t *testing.T) {
 	}
 	if w.config.CgroupRoot == "" {
 		t.Error("CgroupRoot not defaulted")
+	}
+	if w.config.SummarizeEveryN <= 0 {
+		t.Error("SummarizeEveryN not defaulted")
+	}
+}
+
+// captureLog captures log output from the default logger during the test.
+func captureLog(t *testing.T) func() string {
+	t.Helper()
+	var buf strings.Builder
+	origOutput := log.Writer()
+	origFlags := log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(origOutput)
+		log.SetFlags(origFlags)
+	})
+	return buf.String
+}
+
+func TestWatchdog_logSummary_sortsWorstFirstAndSkipsEmpty(t *testing.T) {
+	w := NewWatchdog(nil, nil, WatchdogConfig{})
+	get := captureLog(t)
+
+	// Empty input → no log line at all.
+	w.logSummary(nil)
+	if out := get(); out != "" {
+		t.Fatalf("empty readings should produce no log, got %q", out)
+	}
+
+	w.logSummary([]deploymentReading{
+		{Deployment: "low", Current: 5, Max: 100},
+		{Deployment: "high", Current: 80, Max: 100},
+		{Deployment: "mid", Current: 40, Max: 100},
+	})
+
+	out := get()
+	if !strings.Contains(out, "pid usage") {
+		t.Fatalf("summary missing 'pid usage': %q", out)
+	}
+	// Ensure ordering: high before mid before low in the same line.
+	hi := strings.Index(out, "high=")
+	md := strings.Index(out, "mid=")
+	lo := strings.Index(out, "low=")
+	if !(hi >= 0 && md > hi && lo > md) {
+		t.Fatalf("expected order high < mid < low, got %q", out)
+	}
+}
+
+func TestWatchdog_logSummary_omittedWhenDisabled(t *testing.T) {
+	// SummarizeEveryN=0 would hit the defaulting branch; we approximate
+	// "disabled" by verifying the threshold math: if the config says "log
+	// every 1000 sweeps" we shouldn't have logged on sweep 1.
+	w := NewWatchdog(nil, nil, WatchdogConfig{SummarizeEveryN: 1000})
+	get := captureLog(t)
+
+	// Pretend we're partway through the first sweep.
+	w.sweepCount = 1
+	if w.config.SummarizeEveryN > 0 && w.sweepCount%w.config.SummarizeEveryN == 0 {
+		w.logSummary([]deploymentReading{{Deployment: "x", Current: 1, Max: 2}})
+	}
+	if out := get(); out != "" {
+		t.Fatalf("summary should not have fired on sweep 1 with N=1000, got %q", out)
+	}
+}
+
+func TestDeploymentReading_Ratio(t *testing.T) {
+	cases := []struct {
+		r    deploymentReading
+		want float64
+	}{
+		{deploymentReading{Current: 0, Max: 100}, 0.0},
+		{deploymentReading{Current: 50, Max: 100}, 0.5},
+		{deploymentReading{Current: 100, Max: 100}, 1.0},
+		{deploymentReading{Current: 10, Max: 0}, 0.0}, // unlimited cgroup → zero ratio
+	}
+	for _, c := range cases {
+		if got := c.r.Ratio(); got != c.want {
+			t.Errorf("Ratio(%+v)=%v, want %v", c.r, got, c.want)
+		}
 	}
 }

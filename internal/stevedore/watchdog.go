@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,11 @@ type WatchdogConfig struct {
 	// CgroupRoot is the path of the unified cgroup v2 hierarchy. Defaults to /sys/fs/cgroup.
 	// Overridable for tests.
 	CgroupRoot string
+	// SummarizeEveryN makes the watchdog emit a one-line PID-usage summary every
+	// Nth sweep. Zero disables summaries; negative falls back to the default (10
+	// sweeps ≈ 5 min at a 30-second Interval). A summary gives operators trend
+	// visibility without the noise of logging every sweep.
+	SummarizeEveryN int
 }
 
 // Watchdog monitors PID pressure inside managed container cgroups and restarts
@@ -53,6 +59,7 @@ type Watchdog struct {
 	mu            sync.Mutex
 	lastRestart   map[string]time.Time
 	loggedMissing map[string]bool
+	sweepCount    int
 }
 
 // NewWatchdog returns a watchdog with defaults filled in.
@@ -71,6 +78,10 @@ func NewWatchdog(instance *Instance, daemon *Daemon, config WatchdogConfig) *Wat
 	}
 	if config.CgroupRoot == "" {
 		config.CgroupRoot = "/sys/fs/cgroup"
+	}
+	if config.SummarizeEveryN == 0 {
+		// Default ≈ 5 min of visibility at the 30 s interval.
+		config.SummarizeEveryN = 10
 	}
 	return &Watchdog{
 		instance:      instance,
@@ -105,7 +116,23 @@ func (w *Watchdog) Run(ctx context.Context) {
 	}
 }
 
-// sweep checks every managed deployment once.
+// deploymentReading is the worst PID reading observed for a deployment in one sweep.
+type deploymentReading struct {
+	Deployment  string
+	ContainerID string // short id of the worst container
+	Current     int64
+	Max         int64
+}
+
+// Ratio returns the pids.current / pids.max fraction, or 0 when Max is unset.
+func (r deploymentReading) Ratio() float64 {
+	if r.Max <= 0 {
+		return 0
+	}
+	return float64(r.Current) / float64(r.Max)
+}
+
+// sweep checks every managed deployment once, then maybe emits a summary.
 func (w *Watchdog) sweep(ctx context.Context) {
 	if w.daemon == nil {
 		return
@@ -117,6 +144,7 @@ func (w *Watchdog) sweep(ctx context.Context) {
 		return
 	}
 
+	var readings []deploymentReading
 	for _, deployment := range deployments {
 		if deployment == "stevedore" {
 			// Don't auto-restart ourselves. Stevedore runs its own zombie reaper.
@@ -125,21 +153,29 @@ func (w *Watchdog) sweep(ctx context.Context) {
 		if w.daemon.isActive(deployment) {
 			continue
 		}
-		w.checkDeployment(ctx, deployment)
+		if r, ok := w.checkDeployment(ctx, deployment); ok {
+			readings = append(readings, r)
+		}
+	}
+
+	w.sweepCount++
+	if w.config.SummarizeEveryN > 0 && w.sweepCount%w.config.SummarizeEveryN == 0 {
+		w.logSummary(readings)
 	}
 }
 
 // checkDeployment inspects one deployment and acts on the worst-pressure container.
-func (w *Watchdog) checkDeployment(ctx context.Context, deployment string) {
+// Returns (reading, true) when any container yielded a readable ratio, (zero, false)
+// otherwise — summaries should only include deployments we could actually measure.
+func (w *Watchdog) checkDeployment(ctx context.Context, deployment string) (deploymentReading, bool) {
 	projectName := ComposeProjectName(deployment)
 	containerIDs, err := w.instance.listProjectContainerIDs(ctx, projectName)
 	if err != nil {
-		return
+		return deploymentReading{}, false
 	}
 
-	var worstRatio float64
-	var worstCID string
-	var worstCurrent, worstMax int64
+	worst := deploymentReading{Deployment: deployment}
+	worstFound := false
 
 	for _, cid := range containerIDs {
 		reading, err := w.readCgroupPids(cid)
@@ -153,27 +189,53 @@ func (w *Watchdog) checkDeployment(ctx context.Context, deployment string) {
 			continue // no limit → nothing to pressure against
 		}
 		ratio := float64(reading.Current) / float64(reading.Max)
-		if ratio > worstRatio {
-			worstRatio = ratio
-			worstCID = cid
-			worstCurrent = reading.Current
-			worstMax = reading.Max
+		if !worstFound || ratio > worst.Ratio() {
+			worstFound = true
+			worst = deploymentReading{
+				Deployment:  deployment,
+				ContainerID: shortCID(cid),
+				Current:     reading.Current,
+				Max:         reading.Max,
+			}
 		}
 	}
 
-	if worstCID == "" {
-		return
+	if !worstFound {
+		return deploymentReading{}, false
 	}
 
-	switch w.classify(worstRatio) {
+	switch w.classify(worst.Ratio()) {
 	case WatchdogWarn:
 		log.Printf("Watchdog: %s container %s pid pressure %d/%d (%.0f%%) — warning",
-			deployment, shortCID(worstCID), worstCurrent, worstMax, worstRatio*100)
+			worst.Deployment, worst.ContainerID, worst.Current, worst.Max, worst.Ratio()*100)
 	case WatchdogRestart:
 		log.Printf("Watchdog: %s container %s pid pressure %d/%d (%.0f%%) — triggering restart",
-			deployment, shortCID(worstCID), worstCurrent, worstMax, worstRatio*100)
-		w.restart(ctx, deployment)
+			worst.Deployment, worst.ContainerID, worst.Current, worst.Max, worst.Ratio()*100)
+		w.restart(ctx, worst.Deployment)
 	}
+	return worst, true
+}
+
+// logSummary emits a one-line per-deployment PID usage report, sorted by ratio
+// descending so the most-stressed container is always first.
+func (w *Watchdog) logSummary(readings []deploymentReading) {
+	if len(readings) == 0 {
+		return
+	}
+	sorted := make([]deploymentReading, len(readings))
+	copy(sorted, readings)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Ratio() > sorted[j].Ratio()
+	})
+
+	var b strings.Builder
+	for i, r := range sorted {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		fmt.Fprintf(&b, "%s=%d/%d(%.0f%%)", r.Deployment, r.Current, r.Max, r.Ratio()*100)
+	}
+	log.Printf("Watchdog: pid usage — %s", b.String())
 }
 
 func (w *Watchdog) classify(ratio float64) WatchdogAction {

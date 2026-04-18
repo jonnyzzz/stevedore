@@ -196,10 +196,11 @@ func runDaemon(instance *stevedore.Instance) {
 		Build:             GitCommit,
 		ReconcileInterval: getEnvDuration("STEVEDORE_RECONCILE_INTERVAL", 30*time.Second),
 		Watchdog: stevedore.WatchdogConfig{
-			Interval:      getEnvDuration("STEVEDORE_WATCHDOG_INTERVAL", 30*time.Second),
-			WarnPct:       getEnvFloat("STEVEDORE_WATCHDOG_WARN_PCT", 0.5),
-			RestartPct:    getEnvFloat("STEVEDORE_WATCHDOG_RESTART_PCT", 0.8),
-			MinRestartGap: getEnvDuration("STEVEDORE_WATCHDOG_MIN_RESTART_GAP", 10*time.Minute),
+			Interval:        getEnvDuration("STEVEDORE_WATCHDOG_INTERVAL", 30*time.Second),
+			WarnPct:         getEnvFloat("STEVEDORE_WATCHDOG_WARN_PCT", 0.5),
+			RestartPct:      getEnvFloat("STEVEDORE_WATCHDOG_RESTART_PCT", 0.8),
+			MinRestartGap:   getEnvDuration("STEVEDORE_WATCHDOG_MIN_RESTART_GAP", 10*time.Minute),
+			SummarizeEveryN: getEnvInt("STEVEDORE_WATCHDOG_SUMMARIZE_EVERY", 10),
 		},
 	})
 
@@ -905,6 +906,19 @@ func getEnvFloat(name string, defaultValue float64) float64 {
 		return defaultValue
 	}
 	return f
+}
+
+func getEnvInt(name string, defaultValue int) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return defaultValue
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("WARNING: invalid %s=%q, using %d", name, v, defaultValue)
+		return defaultValue
+	}
+	return n
 }
 
 func printUsageTo(w io.Writer) {
