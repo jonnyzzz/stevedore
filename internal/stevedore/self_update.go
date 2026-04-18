@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -380,20 +381,48 @@ log "Update complete!"
 }
 
 // systemdExitDelay is the grace period between the HTTP response being sent
-// and the process exit. Long enough for the HTTP client to read the response,
-// short enough that the user feels the restart promptly.
+// and the kill. Long enough for the HTTP client to read the response, short
+// enough that the user feels the restart promptly.
 var systemdExitDelay = 2 * time.Second
 
-// executeSystemdManaged schedules the process to exit so systemd's
-// Restart=always picks up the new image. The exit is delayed so the caller
+// killSelfContainerFn issues `docker kill <containerName>` against the mounted
+// docker socket. It's a variable so tests can replace it with a no-op.
+//
+// Why `docker kill` instead of os.Exit: `stevedore self-update` is often
+// invoked via `docker exec`, which runs a NEW process inside the container
+// rather than the daemon PID 1. os.Exit from that subprocess only kills the
+// subprocess; the daemon keeps running and the container never restarts.
+// `docker kill` terminates the container regardless of who called it, which
+// then fires systemd's Restart=always with the new stevedore:latest.
+var killSelfContainerFn = func(containerName string) error {
+	cmd := exec.Command("docker", "kill", containerName)
+	return cmd.Run()
+}
+
+// exitProcessFn is an injection seam for os.Exit so tests can observe the
+// systemd-managed self-update goroutine without terminating the test binary.
+var exitProcessFn = os.Exit
+
+// executeSystemdManaged schedules a container kill so systemd's
+// Restart=always picks up the new image. The kill is delayed so the caller
 // has time to send the HTTP response and log.
 func (s *SelfUpdate) executeSystemdManaged(newImageTag string) error {
-	log.Printf("Self-update: systemd-managed — image %s tagged, exiting in %s so systemd restarts us",
-		newImageTag, systemdExitDelay)
+	log.Printf("Self-update: systemd-managed — image %s tagged, killing container %s in %s so systemd restarts us",
+		newImageTag, s.config.ContainerName, systemdExitDelay)
 	go func() {
 		time.Sleep(systemdExitDelay)
-		log.Printf("Self-update: exiting now — expect systemd to restart within RestartSec")
-		os.Exit(0)
+		log.Printf("Self-update: docker kill %s — expect systemd to restart within RestartSec", s.config.ContainerName)
+		if err := killSelfContainerFn(s.config.ContainerName); err != nil {
+			log.Printf("Self-update: docker kill failed: %v — falling back to process exit (may not restart if called from docker exec)", err)
+			exitProcessFn(1)
+			return
+		}
+		// Belt-and-suspenders: if we were running as the daemon (PID 1), the
+		// docker kill above will deliver SIGKILL to us. If we were running as a
+		// `docker exec` subprocess, the daemon dies but our subprocess is still
+		// alive briefly — so give a short grace period, then exit too.
+		time.Sleep(500 * time.Millisecond)
+		exitProcessFn(0)
 	}()
 	return nil
 }
