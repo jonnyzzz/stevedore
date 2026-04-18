@@ -285,7 +285,9 @@ else
   log "Warning: rm failed (may already be removed)"
 fi
 
-# Start new container
+# Start new container.
+# /sys/fs/cgroup is mounted read-only so the PID-pressure watchdog can read
+# pids.current / pids.max for every managed container's cgroup.
 log "Starting new container with image %s..."
 if docker run -d \
   --name "%s" \
@@ -293,6 +295,7 @@ if docker run -d \
   $ENV_ARGS \
   -p 42107:42107 \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
   -v "%s:/opt/stevedore" \
   "%s" \
   /app/stevedore -d 2>> "$LOG_FILE"; then
