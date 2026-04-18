@@ -5,6 +5,10 @@ services:
       dockerfile: Dockerfile
     image: stevedore:latest
     container_name: stevedore
+    # Satisfies stevedore's own init enforcement when it deploys itself. tini
+    # becomes PID 1; stevedore's built-in zombie reaper stays as a no-op
+    # fallback (it only activates when os.Getpid() == 1).
+    init: true
     environment:
       STEVEDORE_ROOT: /opt/stevedore
       STEVEDORE_DB_KEY_FILE: /opt/stevedore/system/db.key
