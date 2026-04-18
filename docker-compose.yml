@@ -10,9 +10,13 @@ services:
       STEVEDORE_DB_KEY_FILE: /opt/stevedore/system/db.key
       STEVEDORE_SOURCE_REPO: ${STEVEDORE_SOURCE_REPO:-}
       STEVEDORE_SOURCE_REF: ${STEVEDORE_SOURCE_REF:-}
+    # cgroup: host is required so /sys/fs/cgroup exposes the host's full cgroup
+    # hierarchy (not the per-container namespaced view). The PID-pressure
+    # watchdog reads pids.current / pids.max for each managed container's
+    # cgroup from there.
+    cgroup: host
     # Mount Docker socket to allow Docker operations from within the container.
-    # /sys/fs/cgroup is read-only so the PID-pressure watchdog can read
-    # pids.current / pids.max for managed containers.
+    # /sys/fs/cgroup is read-only so the watchdog can only read PID counters.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${STEVEDORE_HOST_ROOT:-/opt/stevedore}:/opt/stevedore

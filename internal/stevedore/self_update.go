@@ -286,14 +286,18 @@ else
 fi
 
 # Start new container.
-# /sys/fs/cgroup is mounted read-only so the PID-pressure watchdog can read
-# pids.current / pids.max for every managed container's cgroup.
+# /sys/fs/cgroup is mounted read-only AND --cgroupns=host is set so the
+# PID-pressure watchdog can read pids.current / pids.max for every managed
+# container's cgroup. Without --cgroupns=host, Docker remaps the container's
+# view of /sys/fs/cgroup to its own namespace root and the host subtree is
+# invisible.
 log "Starting new container with image %s..."
 if docker run -d \
   --name "%s" \
   --restart "%s" \
   $ENV_ARGS \
   -p 42107:42107 \
+  --cgroupns=host \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
   -v "%s:/opt/stevedore" \
