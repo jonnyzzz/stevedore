@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.10.1] - 2026-04-24
+
+### Changed
+
+- Updated the Go toolchain to 1.26 for the module and build container. The
+  builder image now pins `golang:1.26.2-alpine`, and the README toolchain
+  badge now reflects Go 1.26+.
+
 ## [0.10.0] - 2026-04-18
 
 ### Added
